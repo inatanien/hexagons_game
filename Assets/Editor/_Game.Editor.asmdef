@@ -1,0 +1,22 @@
+﻿{
+    "name": "_Game.Editor",
+    "rootNamespace": "ElfVillage.Editor",
+    "references": [
+        "_Game.Scripts.Core",
+        "_Game.Scripts.HexGrid",
+        "_Game.Scripts.Tiles",
+        "_Game.Scripts.Spirits",
+        "_Game.Scripts.Quest",
+        "_Game.Scripts.UI",
+        "_Game.Scripts.Save"
+    ],
+    "includePlatforms": ["Editor"],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

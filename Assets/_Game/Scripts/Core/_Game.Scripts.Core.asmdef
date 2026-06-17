@@ -1,0 +1,14 @@
+﻿{
+    "name": "_Game.Scripts.Core",
+    "rootNamespace": "ElfVillage.Core",
+    "references": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

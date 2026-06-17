@@ -1,0 +1,14 @@
+﻿{
+    "name": "_Game.Scripts.Quest",
+    "rootNamespace": "ElfVillage.Quest",
+    "references": ["_Game.Scripts.Core"],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

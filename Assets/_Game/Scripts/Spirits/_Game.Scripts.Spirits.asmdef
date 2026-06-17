@@ -1,0 +1,14 @@
+﻿{
+    "name": "_Game.Scripts.Spirits",
+    "rootNamespace": "ElfVillage.Spirits",
+    "references": ["_Game.Scripts.Core", "_Game.Scripts.Tiles"],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

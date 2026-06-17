@@ -1,0 +1,14 @@
+﻿{
+    "name": "_Game.Scripts.UI",
+    "rootNamespace": "ElfVillage.UI",
+    "references": ["_Game.Scripts.Core", "_Game.Scripts.Tiles", "_Game.Scripts.Quest"],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
