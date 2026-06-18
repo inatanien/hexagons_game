@@ -5,6 +5,7 @@
 
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using ElfVillage.HexGrid;
 
 namespace ElfVillage.Tiles
@@ -52,10 +53,13 @@ namespace ElfVillage.Tiles
             }
         }
 
-        private void HandleHover()
+private void HandleHover()
         {
             if (_mainCamera == null) return;
-            Ray ray = _mainCamera.ScreenPointToRay(Input.mousePosition);
+            var mouse = Mouse.current;
+            if (mouse == null) return;
+            Vector2 screenPos = mouse.position.ReadValue();
+            Ray ray = _mainCamera.ScreenPointToRay(screenPos);
             HexTile hit = RaycastTile(ray);
 
             if (hit != _hoveredTile)
@@ -66,16 +70,20 @@ namespace ElfVillage.Tiles
             }
         }
 
-        private void HandleRotation()
+private void HandleRotation()
         {
-            float scroll = Input.GetAxis("Mouse ScrollWheel");
+            var mouse = Mouse.current;
+            if (mouse == null) return;
+            float scroll = mouse.scroll.ReadValue().y;
             if (scroll > 0f) _currentRotation = (_currentRotation + 1) % 6;
             else if (scroll < 0f) _currentRotation = (_currentRotation + 5) % 6;
         }
 
-        private void HandlePlacement()
+private void HandlePlacement()
         {
-            if (!Input.GetMouseButtonDown(0)) return;
+            var mouse = Mouse.current;
+            if (mouse == null) return;
+            if (!mouse.leftButton.wasPressedThisFrame) return;
             if (_hoveredTile == null) return;
             if (_hoveredTile.IsPlaced) return;
             if (availableTileTypes == null || availableTileTypes.Length == 0) return;

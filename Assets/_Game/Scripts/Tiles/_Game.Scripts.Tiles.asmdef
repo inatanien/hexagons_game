@@ -1,7 +1,7 @@
 ﻿{
     "name": "_Game.Scripts.Tiles",
     "rootNamespace": "ElfVillage.Tiles",
-    "references": ["_Game.Scripts.Core", "_Game.Scripts.HexGrid"],
+    "references": ["_Game.Scripts.Core", "_Game.Scripts.HexGrid", "Unity.InputSystem"],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
