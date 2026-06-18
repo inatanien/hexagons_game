@@ -47,11 +47,19 @@ namespace ElfVillage.Tiles
             transform.rotation = Quaternion.Euler(0f, Data.rotation * 60f, 0f);
         }
 
-        public void Highlight(bool on)
+public void Highlight(bool on, bool placeable = true)
         {
             if (tileRenderer == null) return;
-            Color base_ = Data.tileType != null ? Data.tileType.tileColor : Color.white;
-            tileRenderer.material.color = on ? base_ * 1.4f : base_;
+            Color baseColor = Data.tileType != null ? Data.tileType.tileColor : Color.white;
+            if (!on)
+            {
+                tileRenderer.material.color = baseColor;
+                return;
+            }
+            // 配置可能=緑寄り、配置不可=赤寄りで明度を上げる
+            tileRenderer.material.color = placeable
+                ? Color.Lerp(baseColor, Color.green, 0.45f)
+                : Color.Lerp(baseColor, Color.red,   0.55f);
         }
     }
 }

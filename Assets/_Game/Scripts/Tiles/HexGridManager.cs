@@ -26,6 +26,8 @@ namespace ElfVillage.Tiles
         private int _currentTileIndex = 0;
         private int _currentRotation = 0;
         private HexTile _hoveredTile;
+        private bool _hoveredPlaceable = true;
+
         private Camera _mainCamera;
 
         private void Start()
@@ -62,11 +64,20 @@ private void HandleHover()
             Ray ray = _mainCamera.ScreenPointToRay(screenPos);
             HexTile hit = RaycastTile(ray);
 
-            if (hit != _hoveredTile)
+            bool newPlaceable = true;
+            if (hit != null && !hit.IsPlaced && availableTileTypes != null && availableTileTypes.Length > 0)
+            {
+                TileType type = availableTileTypes[_currentTileIndex % availableTileTypes.Length];
+                newPlaceable = EdgeMatcher.IsPlaceable(hit.Data.coord, type, _currentRotation, _grid);
+            }
+
+            if (hit != _hoveredTile || newPlaceable != _hoveredPlaceable)
             {
                 _hoveredTile?.Highlight(false);
                 _hoveredTile = hit;
-                _hoveredTile?.Highlight(true);
+                _hoveredPlaceable = newPlaceable;
+                if (_hoveredTile != null && !_hoveredTile.IsPlaced)
+                    _hoveredTile.Highlight(true, _hoveredPlaceable);
             }
         }
 
@@ -87,6 +98,7 @@ private void HandlePlacement()
             if (_hoveredTile == null) return;
             if (_hoveredTile.IsPlaced) return;
             if (availableTileTypes == null || availableTileTypes.Length == 0) return;
+            if (!_hoveredPlaceable) return;
 
             TileType type = availableTileTypes[_currentTileIndex % availableTileTypes.Length];
             _hoveredTile.Place(type, _currentRotation);
