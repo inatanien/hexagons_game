@@ -1,7 +1,7 @@
 ﻿{
     "name": "_Game.Scripts.Core",
     "rootNamespace": "ElfVillage.Core",
-    "references": [],
+    "references": ["Unity.InputSystem"],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
