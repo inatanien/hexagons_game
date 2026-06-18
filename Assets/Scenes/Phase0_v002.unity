@@ -271,9 +271,10 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   panSpeed: 0.02
   zoomSpeed: 2
-  minZoom: 5
-  maxZoom: 40
+  minDistance: 5
+  maxDistance: 45
   orbitSpeed: 0.3
+  pitchAngle: 55
 --- !u!1 &410087039
 GameObject:
   m_ObjectHideFlags: 0
