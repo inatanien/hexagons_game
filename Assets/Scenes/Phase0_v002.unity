@@ -456,7 +456,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   radius: 3
-  tileSize: 0.65
+  tileSize: 1
   hexTilePrefab: {fileID: 509065287734948980, guid: f489d32bf69ea564a8a50068532ab618, type: 3}
   availableTileTypes:
   - {fileID: 11400000, guid: e3fc723b1d653774299fd4efd81b82a1, type: 2}

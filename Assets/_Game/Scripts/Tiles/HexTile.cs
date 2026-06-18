@@ -9,7 +9,23 @@ namespace ElfVillage.Tiles
 {
     public class HexTile : MonoBehaviour
     {
-        [SerializeField] private Renderer tileRenderer;
+        [SerializeField] private MeshFilter   meshFilter;
+        [SerializeField] private MeshRenderer meshRenderer;
+        [SerializeField] private MeshCollider meshCollider;
+
+        [Header("メッシュ設定")]
+        [SerializeField] private float outerRadius = 0.95f;
+        [SerializeField] private float tileHeight  = 0.15f;
+
+        private Renderer tileRenderer;
+
+        private void Awake()
+        {
+            tileRenderer = meshRenderer;
+            Mesh mesh = HexMeshBuilder.Build(outerRadius, tileHeight);
+            if (meshFilter   != null) meshFilter.sharedMesh   = mesh;
+            if (meshCollider != null) meshCollider.sharedMesh  = mesh;
+        }
 
         public TileData Data { get; private set; }
         public bool IsPlaced { get; private set; }
