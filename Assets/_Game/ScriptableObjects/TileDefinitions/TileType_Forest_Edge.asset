@@ -14,4 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   tileName: "\u68EE\u306E\u7E01"
   tileColor: {r: 0.28, g: 0.62, b: 0.22, a: 1}
+  propType: 1
+  propCount: 1
+  dividerType: 0
   edges: 010000000100000001000000020000000200000002000000

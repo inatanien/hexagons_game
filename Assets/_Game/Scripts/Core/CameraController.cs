@@ -1,5 +1,5 @@
 // 役割: RTS視点のカメラ操作を提供する MonoBehaviour。
-//       右ドラッグでパン、ホイールでズーム、中ドラッグ・Q/Eで回転。
+//       左ドラッグ（タイル外）でパン、ホイールでズーム、中ドラッグ・Q/Eで回転。
 
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -9,7 +9,7 @@ namespace ElfVillage.Core
     public class CameraController : MonoBehaviour
     {
         [Header("パン設定")]
-        [SerializeField] private float panSpeed    = 0.006f;
+        [SerializeField] private float panSpeed    = 0.001f;
 
         [Header("ズーム設定")]
         [SerializeField] private float zoomSpeed       = 3f;
@@ -39,9 +39,12 @@ namespace ElfVillage.Core
         private Vector2 _prevMousePos;
         private bool    _prevMouseInitialized;
 
-        // パン（掴み移動）用
-        private Vector3 _panGrabPoint;
-        private bool    _isPanning;
+        // パン用
+        private bool  _isPanning;
+        private float _panPressTime = -1f;
+
+        // タップ vs 長押し判定しきい値（HexGridManager と合わせること）
+        private const float PanHoldThreshold = 0.2f;
 
         // オービット回転用（押した瞬間の基準点を固定）
         private Vector3 _orbitCenter;
@@ -79,7 +82,7 @@ namespace ElfVillage.Core
             _prevMousePos = mousePos;
 
             HandleZoom(mouse);
-            HandlePan(mouse);
+            HandlePan(mouse, delta);
             HandleOrbitMouse(mouse, delta);
             HandleOrbitKeyboard(keyboard);
 
@@ -102,19 +105,47 @@ namespace ElfVillage.Core
             }
         }
 
-        // ── 右ドラッグ：パン（掴み移動） ─────────────────────────
-        // カーソル下のワールド点を掴み、カーソルに追従させる。
-        // _pivot も即時更新することでスムージング遅延によるドリフトを防ぐ。
-        private void HandlePan(Mouse mouse)
+        // ── 左ドラッグ：パン ──────────────────────────────────────
+        // スクリーンデルタ × ズーム距離 × panSpeed でクリック位置に依存しない一定移動量を実現。
+        // 配置可能タイル上は0.2秒長押しでパン開始（素早いタップはタイル配置）。
+        // タイル外（空地・配置済み）は押した瞬間に即パン開始。
+        private void HandlePan(Mouse mouse, Vector2 screenDelta)
         {
-            if (mouse.rightButton.wasPressedThisFrame)
-                _isPanning = TryGetGroundPoint(mouse, out _panGrabPoint);
+            if (mouse.leftButton.wasPressedThisFrame)
+            {
+                Ray ray = Camera.main.ScreenPointToRay(mouse.position.ReadValue());
+                bool hitAvailableTile = Physics.Raycast(ray, out _);
 
-            if (!mouse.rightButton.isPressed) { _isPanning = false; return; }
+                if (hitAvailableTile)
+                {
+                    _panPressTime = Time.time;
+                    _isPanning    = false;
+                }
+                else
+                {
+                    _panPressTime = -1f;
+                    _isPanning    = true;
+                }
+            }
+
+            if (!mouse.leftButton.isPressed)
+            {
+                _isPanning    = false;
+                _panPressTime = -1f;
+                return;
+            }
+
+            if (!_isPanning && _panPressTime >= 0f && Time.time - _panPressTime >= PanHoldThreshold)
+                _isPanning = true;
+
             if (!_isPanning) return;
 
-            if (!TryGetGroundPoint(mouse, out Vector3 currentPoint)) return;
-            Vector3 move = _panGrabPoint - currentPoint;
+            // カメラのXZ方向ベクトルにデルタを乗せて移動（クリック位置・距離に依存しない）
+            var cam = Camera.main;
+            float scale = _distance * panSpeed;
+            Vector3 right   = cam.transform.right;   right.y   = 0f; right.Normalize();
+            Vector3 forward = cam.transform.forward; forward.y = 0f; forward.Normalize();
+            Vector3 move = (-right * screenDelta.x + -forward * screenDelta.y) * scale;
             _targetPivot += move;
             _pivot       += move;
         }

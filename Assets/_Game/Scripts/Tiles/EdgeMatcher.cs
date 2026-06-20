@@ -9,9 +9,9 @@ namespace ElfVillage.Tiles
     public static class EdgeMatcher
     {
         /// <summary>
-        /// 指定セルに tileType を rotation で置いたとき、
-        /// 既存の隣接タイルすべてと辺が一致するか返す。
-        /// 隣接に配置済みタイルが1つもない場合は true（制約なし）。
+        /// 指定セルにタイルを置けるか返す。
+        /// ルール: 最初の1枚は自由配置、2枚目以降は配置済みタイルへの隣接が必須。
+        /// エッジマッチングは配置を妨げない（将来のスコアリングで活用予定）。
         /// </summary>
         public static bool IsPlaceable(
             HexCoord coord,
@@ -19,22 +19,33 @@ namespace ElfVillage.Tiles
             int rotation,
             IReadOnlyDictionary<HexCoord, HexTile> grid)
         {
-            var candidate = new TileData(coord, tileType, rotation);
-            bool hasPlacedNeighbor = false;
+            if (!HasAnyPlaced(grid)) return true;
 
             for (int dir = 0; dir < 6; dir++)
             {
-                HexCoord neighborCoord = coord.Neighbor(dir);
-                if (!grid.TryGetValue(neighborCoord, out HexTile neighborTile)) continue;
-                if (!neighborTile.IsPlaced) continue;
-
-                hasPlacedNeighbor = true;
-                if (!candidate.CanConnect(neighborTile.Data, dir))
-                    return false;
+                if (grid.TryGetValue(coord.Neighbor(dir), out HexTile neighbor) && neighbor.IsPlaced)
+                    return true;
             }
+            return false;
+        }
 
-            // 1枚でも置かれていれば隣接必須（最初の1枚だけ自由配置）
-            if (HasAnyPlaced(grid) && !hasPlacedNeighbor) return false;
+        /// <summary>
+        /// 指定セルに tileType を rotation で置いたとき、隣接タイルすべてと辺が一致するか返す。
+        /// 配置ブロックではなく、スコアリング・視覚ヒント用。
+        /// </summary>
+        public static bool IsEdgeCompatible(
+            HexCoord coord,
+            TileType tileType,
+            int rotation,
+            IReadOnlyDictionary<HexCoord, HexTile> grid)
+        {
+            var candidate = new TileData(coord, tileType, rotation);
+            for (int dir = 0; dir < 6; dir++)
+            {
+                if (!grid.TryGetValue(coord.Neighbor(dir), out HexTile neighborTile)) continue;
+                if (!neighborTile.IsPlaced) continue;
+                if (!candidate.CanConnect(neighborTile.Data, dir)) return false;
+            }
             return true;
         }
 
