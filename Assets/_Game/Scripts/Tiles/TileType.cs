@@ -46,6 +46,12 @@ namespace ElfVillage.Tiles
         [Header("分割線")]
         public TileDividerType dividerType = TileDividerType.None;
 
+        [Header("接続コネクター設定")]
+        [Tooltip("コネクターの色。alpha=0 のとき tileColor を自動使用する")]
+        public Color      connectorColor  = new Color(0f, 0f, 0f, 0f);
+        [Tooltip("カスタムコネクタープレハブ。null のとき標準 Cube コネクターを使用")]
+        public GameObject connectorPrefab = null;
+
         [Header("辺の接続種別（direction 0〜5）")]
         [Tooltip("direction 0=右, 1=右上, 2=左上, 3=左, 4=左下, 5=右下")]
         public EdgeType[] edges = new EdgeType[6];

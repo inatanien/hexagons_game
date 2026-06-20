@@ -32,6 +32,13 @@ namespace ElfVillage.Tiles
         private TileType _worldType;
         private GameObject _worldPropsRoot;
 
+        // 接続状態（6方向・同種タイルと隣接しているか）
+        private readonly bool[] _connectedEdges = new bool[6];
+
+        // TileConnectionFX が自己初期化するために参照する
+        public float OuterRadius => outerRadius;
+        public float TileHeight  => tileHeight;
+
         private void Awake()
         {
             tileRenderer = meshRenderer;
@@ -40,6 +47,9 @@ namespace ElfVillage.Tiles
             Mesh mesh = HexMeshBuilder.Build(outerRadius, tileHeight);
             if (meshFilter   != null) meshFilter.sharedMesh   = mesh;
             if (meshCollider != null) meshCollider.sharedMesh  = mesh;
+
+            // TileConnectionFX は Awake 内で GetComponent<HexTile>() を使って自己初期化する
+            gameObject.AddComponent<TileConnectionFX>();
         }
 
         public TileData Data { get; private set; }
@@ -267,6 +277,16 @@ namespace ElfVillage.Tiles
             }
             transform.localScale = Vector3.one;
         }
+
+        // ── 接続管理 ─────────────────────────────────────────────────
+
+        /// <summary>接続状態を記録する。ビジュアル演出は EventBus 経由で TileConnectionFX が担当。</summary>
+        public void MarkConnectedEdge(int dir)
+        {
+            _connectedEdges[dir] = true;
+        }
+
+        public bool IsEdgeConnected(int dir) => _connectedEdges[((dir % 6) + 6) % 6];
 
         public void SetRotation(int rotation)
         {
