@@ -33,7 +33,8 @@ namespace ElfVillage.Tiles
                     return false;
             }
 
-            // 隣接に配置済みがなければ最初の1枚として自由に置ける
+            // 1枚でも置かれていれば隣接必須（最初の1枚だけ自由配置）
+            if (HasAnyPlaced(grid) && !hasPlacedNeighbor) return false;
             return true;
         }
 

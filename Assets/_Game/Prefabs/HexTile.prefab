@@ -103,7 +103,7 @@ MonoBehaviour:
   meshFilter: {fileID: 5489803172599378115}
   meshRenderer: {fileID: 3872815449185726589}
   meshCollider: {fileID: 3134930231205665984}
-  outerRadius: 0.95
+  outerRadius: 1.9
   tileHeight: 0.15
 --- !u!64 &3134930231205665984
 MeshCollider:

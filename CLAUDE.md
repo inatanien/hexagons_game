@@ -244,3 +244,19 @@ Claude Code は
 を担当する。
 
 仕様が曖昧な場合は、勝手に決めずユーザーに確認すること。
+
+## セッション開始手順
+
+1. Unityを起動
+2. プロジェクトを開く
+3. UnityMCPサーバーが起動していることを確認
+4. Claude Codeを起動
+5. `git log --oneline -10`
+6. `git status`
+7. UnityMCPで以下を確認
+   - シーン名
+   - Hierarchy
+   - Consoleエラー
+   - コンパイル状態
+
+   

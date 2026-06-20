@@ -34,6 +34,7 @@ namespace ElfVillage.Tiles
         {
             _mainCamera = Camera.main;
             GenerateGrid();
+            UpdateAvailableHighlights();
         }
 
         private void Update()
@@ -103,6 +104,7 @@ private void HandlePlacement()
             TileType type = availableTileTypes[_currentTileIndex % availableTileTypes.Length];
             _hoveredTile.Place(type, _currentRotation);
             _currentTileIndex++;
+            UpdateAvailableHighlights();
         }
 
         private HexTile RaycastTile(Ray ray)
@@ -110,6 +112,41 @@ private void HandlePlacement()
             if (Physics.Raycast(ray, out RaycastHit hit))
                 return hit.collider.GetComponentInParent<HexTile>();
             return null;
+        }
+
+        /// <summary>
+        /// 配置済みタイルに隣接する未配置マスを「置けるマス」としてハイライト更新する。
+        /// タイル配置のたびに呼ぶ。
+        /// </summary>
+        private void UpdateAvailableHighlights()
+        {
+            bool anyPlaced = EdgeMatcher.HasAnyPlaced(_grid);
+            foreach (var kv in _grid)
+            {
+                HexTile tile = kv.Value;
+                if (tile.IsPlaced) continue;
+
+                bool available;
+                if (!anyPlaced)
+                {
+                    // 最初の1枚はグリッド全体が対象
+                    available = true;
+                }
+                else
+                {
+                    // 隣接に配置済みがあれば置けるマス
+                    available = false;
+                    for (int dir = 0; dir < 6; dir++)
+                    {
+                        if (_grid.TryGetValue(kv.Key.Neighbor(dir), out HexTile neighbor) && neighbor.IsPlaced)
+                        {
+                            available = true;
+                            break;
+                        }
+                    }
+                }
+                tile.SetAvailable(available);
+            }
         }
 
         public bool TryGetTile(HexCoord coord, out HexTile tile)

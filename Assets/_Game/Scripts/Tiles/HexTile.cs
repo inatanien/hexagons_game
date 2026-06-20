@@ -18,10 +18,14 @@ namespace ElfVillage.Tiles
         [SerializeField] private float tileHeight  = 0.15f;
 
         private Renderer tileRenderer;
+        private Color _defaultColor;
+        private bool _isAvailable;
 
         private void Awake()
         {
             tileRenderer = meshRenderer;
+            // sharedMaterial から元色をキャッシュ（material を触る前に取得しないとインスタンスが生まれる）
+            _defaultColor = tileRenderer != null ? tileRenderer.sharedMaterial.color : Color.gray;
             Mesh mesh = HexMeshBuilder.Build(outerRadius, tileHeight);
             if (meshFilter   != null) meshFilter.sharedMesh   = mesh;
             if (meshCollider != null) meshCollider.sharedMesh  = mesh;
@@ -63,13 +67,26 @@ namespace ElfVillage.Tiles
             transform.rotation = Quaternion.Euler(0f, Data.rotation * 60f, 0f);
         }
 
-public void Highlight(bool on, bool placeable = true)
+        /// <summary>「置けるマス」として常時ハイライトするかを設定する。</summary>
+        public void SetAvailable(bool available)
+        {
+            _isAvailable = available;
+            if (!IsPlaced && tileRenderer != null)
+                tileRenderer.material.color = available ? GetAvailableColor() : _defaultColor;
+        }
+
+        // 「置けるマス」の常時ハイライト色（淡い緑）
+        private Color GetAvailableColor() =>
+            Color.Lerp(_defaultColor, new Color(0.55f, 0.95f, 0.55f), 0.28f);
+
+        public void Highlight(bool on, bool placeable = true)
         {
             if (tileRenderer == null) return;
-            Color baseColor = Data.tileType != null ? Data.tileType.tileColor : Color.white;
+            Color baseColor = Data.tileType != null ? Data.tileType.tileColor : _defaultColor;
             if (!on)
             {
-                tileRenderer.material.color = baseColor;
+                // ホバーが外れても「置けるマス」ハイライトを維持する
+                tileRenderer.material.color = (_isAvailable && !IsPlaced) ? GetAvailableColor() : baseColor;
                 return;
             }
             // 配置可能=緑寄り、配置不可=赤寄りで明度を上げる

@@ -12,16 +12,19 @@ namespace ElfVillage.Core
         [SerializeField] private float panSpeed    = 0.006f;
 
         [Header("ズーム設定")]
-        [SerializeField] private float zoomSpeed   = 3f;
-        [SerializeField] private float minDistance = 5f;
-        [SerializeField] private float maxDistance = 45f;
+        [SerializeField] private float zoomSpeed       = 3f;
+        [SerializeField] private float initialDistance = 4f;
+        [SerializeField] private float minDistance     = 4f;
+        [SerializeField] private float maxDistance     = 35f;
 
         [Header("回転設定")]
         [SerializeField] private float orbitSpeed  = 0.25f;
-        [SerializeField] private float pitchAngle  = 55f; // 俯角（固定）
+        [SerializeField] private float pitchAngle  = 40f;
+        [Tooltip("HexGridManager の tileSize と合わせること")]
+        [SerializeField] private float hexSize     = 2.0f;
 
         [Header("スムージング")]
-        [SerializeField] private float smoothSpeed = 12f; // 大きいほど即レスポンス
+        [SerializeField] private float smoothSpeed = 12f;
 
         // 目標値（入力で即時更新）
         private Vector3 _targetPivot;
@@ -36,13 +39,20 @@ namespace ElfVillage.Core
         private Vector2 _prevMousePos;
         private bool    _prevMouseInitialized;
 
+        // パン（掴み移動）用
+        private Vector3 _panGrabPoint;
+        private bool    _isPanning;
+
+        // オービット回転用（押した瞬間の基準点を固定）
+        private Vector3 _orbitCenter;
+        private bool    _hasOrbitCenter;
+
         private void Start()
         {
             _yaw      = transform.eulerAngles.y;
-            _distance = Mathf.Clamp(transform.position.y / Mathf.Sin(Mathf.Deg2Rad * pitchAngle), minDistance, maxDistance);
+            _distance = Mathf.Clamp(initialDistance, minDistance, maxDistance);
             _pivot    = transform.position - GetOffset(_distance, _yaw);
 
-            // 目標値を現在値で初期化
             _targetPivot    = _pivot;
             _targetYaw      = _yaw;
             _targetDistance = _distance;
@@ -50,7 +60,7 @@ namespace ElfVillage.Core
             _prevMouseInitialized = false;
         }
 
-private void Update()
+        private void Update()
         {
             var mouse    = Mouse.current;
             var keyboard = Keyboard.current;
@@ -58,69 +68,159 @@ private void Update()
 
             Vector2 mousePos = mouse.position.ReadValue();
 
-            // 初回フレームはdeltaを使わない
             if (!_prevMouseInitialized)
             {
-                _prevMousePos        = mousePos;
+                _prevMousePos         = mousePos;
                 _prevMouseInitialized = true;
                 return;
             }
 
-            Vector2 delta   = mousePos - _prevMousePos;
-            _prevMousePos   = mousePos;
+            Vector2 delta = mousePos - _prevMousePos;
+            _prevMousePos = mousePos;
 
             HandleZoom(mouse);
-            HandlePan(mouse, delta);
+            HandlePan(mouse);
             HandleOrbitMouse(mouse, delta);
             HandleOrbitKeyboard(keyboard);
 
             SmoothAndApply();
         }
 
-        // ── ズーム ────────────────────────────────────────────────
+        // ── ズーム（カーソル基準） ────────────────────────────────
         private void HandleZoom(Mouse mouse)
         {
             float scroll = mouse.scroll.ReadValue().y;
             if (Mathf.Approximately(scroll, 0f)) return;
+
+            float oldDist = _targetDistance;
             _targetDistance = Mathf.Clamp(_targetDistance - scroll * zoomSpeed, minDistance, maxDistance);
+
+            if (TryGetGroundPoint(mouse, out Vector3 cursorGround))
+            {
+                float ratio = 1f - _targetDistance / oldDist;
+                _targetPivot = Vector3.Lerp(_targetPivot, cursorGround, ratio * 0.6f);
+            }
         }
 
-        // ── 右ドラッグ：パン ──────────────────────────────────────
-        private void HandlePan(Mouse mouse, Vector2 delta)
+        // ── 右ドラッグ：パン（掴み移動） ─────────────────────────
+        // カーソル下のワールド点を掴み、カーソルに追従させる。
+        // _pivot も即時更新することでスムージング遅延によるドリフトを防ぐ。
+        private void HandlePan(Mouse mouse)
         {
-            if (!mouse.rightButton.isPressed) return;
-            float scale  = _distance * panSpeed;
-            float yawRad = Mathf.Deg2Rad * _yaw;
-            var right    = new Vector3( Mathf.Cos(yawRad), 0,  Mathf.Sin(yawRad));
-            var forward  = new Vector3(-Mathf.Sin(yawRad), 0,  Mathf.Cos(yawRad));
-            _targetPivot -= (right * delta.x - forward * delta.y) * scale;
+            if (mouse.rightButton.wasPressedThisFrame)
+                _isPanning = TryGetGroundPoint(mouse, out _panGrabPoint);
+
+            if (!mouse.rightButton.isPressed) { _isPanning = false; return; }
+            if (!_isPanning) return;
+
+            if (!TryGetGroundPoint(mouse, out Vector3 currentPoint)) return;
+            Vector3 move = _panGrabPoint - currentPoint;
+            _targetPivot += move;
+            _pivot       += move;
         }
 
-        // ── 中ドラッグ：オービット回転 ────────────────────────────
+        // ── 中ドラッグ：ヨー回転（画面中央基準・押した瞬間に固定） ──
         private void HandleOrbitMouse(Mouse mouse, Vector2 delta)
         {
-            if (!mouse.middleButton.isPressed) return;
-            _targetYaw += delta.x * orbitSpeed;
+            // 押した瞬間だけ基準点を記録
+            if (mouse.middleButton.wasPressedThisFrame)
+                _hasOrbitCenter = TryGetScreenCenterGroundPoint(out _orbitCenter);
+
+            if (!mouse.middleButton.isPressed) { _hasOrbitCenter = false; return; }
+            if (!_hasOrbitCenter) return;
+
+            float deltaYaw = delta.x * orbitSpeed;
+            if (Mathf.Approximately(deltaYaw, 0f)) return;
+
+            _targetYaw += deltaYaw;
+            Vector3 offset = _targetPivot - _orbitCenter;
+            offset = Quaternion.Euler(0f, deltaYaw, 0f) * offset;
+            _targetPivot = _orbitCenter + offset;
         }
 
-        // ── Q/E キー：60°スナップ回転 ────────────────────────────
+        // ── Q/E キー：60°スナップ回転（画面中央基準） ──────────
         private void HandleOrbitKeyboard(Keyboard keyboard)
         {
             if (keyboard == null) return;
-            if (keyboard.qKey.wasPressedThisFrame) _targetYaw -= 60f;
-            if (keyboard.eKey.wasPressedThisFrame) _targetYaw += 60f;
+            float deltaYaw = 0f;
+            if (keyboard.qKey.wasPressedThisFrame) deltaYaw = -60f;
+            if (keyboard.eKey.wasPressedThisFrame) deltaYaw = +60f;
+            if (Mathf.Approximately(deltaYaw, 0f)) return;
+
+            _targetYaw += deltaYaw;
+
+            if (TryGetScreenCenterGroundPoint(out Vector3 center))
+            {
+                Vector3 offset = _targetPivot - center;
+                offset = Quaternion.Euler(0f, deltaYaw, 0f) * offset;
+                _targetPivot = center + offset;
+            }
         }
 
         // ── スムージングして適用 ──────────────────────────────────
         private void SmoothAndApply()
         {
-            float t    = 1f - Mathf.Exp(-smoothSpeed * Time.deltaTime);
-            _pivot     = Vector3.Lerp(_pivot, _targetPivot, t);
-            _yaw       = Mathf.LerpAngle(_yaw, _targetYaw, t);
-            _distance  = Mathf.Lerp(_distance, _targetDistance, t);
+            float t   = 1f - Mathf.Exp(-smoothSpeed * Time.deltaTime);
+            _pivot    = Vector3.Lerp(_pivot, _targetPivot, t);
+            _yaw      = Mathf.LerpAngle(_yaw, _targetYaw, t);
+            _distance = Mathf.Lerp(_distance, _targetDistance, t);
 
             transform.position = _pivot + GetOffset(_distance, _yaw);
             transform.rotation = Quaternion.Euler(pitchAngle, _yaw, 0f);
+        }
+
+        // ── マウス下の Y=0 平面上の点を取得 ──────────────────────
+        private bool TryGetGroundPoint(Mouse mouse, out Vector3 result)
+        {
+            result = Vector3.zero;
+            Ray ray = Camera.main.ScreenPointToRay(mouse.position.ReadValue());
+            if (Mathf.Approximately(ray.direction.y, 0f)) return false;
+            float t = -ray.origin.y / ray.direction.y;
+            if (t < 0f) return false;
+            result = ray.origin + ray.direction * t;
+            return true;
+        }
+
+        // ── 画面中央の Y=0 平面上の点を取得 ──────────────────────
+        private bool TryGetScreenCenterGroundPoint(out Vector3 result)
+        {
+            result = Vector3.zero;
+            var cam = Camera.main;
+            if (cam == null) return false;
+            Ray ray = cam.ScreenPointToRay(new Vector2(Screen.width * 0.5f, Screen.height * 0.5f));
+            if (Mathf.Approximately(ray.direction.y, 0f)) return false;
+            float t = -ray.origin.y / ray.direction.y;
+            if (t < 0f) return false;
+            result = ray.origin + ray.direction * t;
+            return true;
+        }
+
+        // ── 画面中央に最も近いグリッド（六角形）の中心点を取得 ──
+        // HexCoord と同じ Cube Coordinates の計算式をインライン実装。
+        // Core は Tiles/HexGrid を参照できないためここに持つ。
+        private bool TryGetScreenCenterHexPoint(out Vector3 result)
+        {
+            if (!TryGetScreenCenterGroundPoint(out result)) return false;
+            result = SnapToNearestHex(result);
+            return true;
+        }
+
+        private Vector3 SnapToNearestHex(Vector3 worldPos)
+        {
+            float fq = (2f / 3f * worldPos.x) / hexSize;
+            float fr = (-1f / 3f * worldPos.x + Mathf.Sqrt(3f) / 3f * worldPos.z) / hexSize;
+            float fs = -fq - fr;
+
+            int rq = Mathf.RoundToInt(fq);
+            int rr = Mathf.RoundToInt(fr);
+            int rs = Mathf.RoundToInt(fs);
+            float dq = Mathf.Abs(rq - fq), dr = Mathf.Abs(rr - fr), ds = Mathf.Abs(rs - fs);
+            if      (dq > dr && dq > ds) rq = -rr - rs;
+            else if (dr > ds)            rr = -rq - rs;
+
+            float x = hexSize * (1.5f * rq);
+            float z = hexSize * (Mathf.Sqrt(3f) * (rr + rq * 0.5f));
+            return new Vector3(x, 0f, z);
         }
 
         private Vector3 GetOffset(float dist, float yaw)
