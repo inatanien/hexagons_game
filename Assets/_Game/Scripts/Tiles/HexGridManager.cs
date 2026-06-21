@@ -185,10 +185,13 @@ namespace ElfVillage.Tiles
             if (currentType == null) return;
 
             HexCoord placedCoord = _hoveredTile.Data.coord;
-            _hoveredTile.Place(currentType, _currentRotation);
+            HexTile  placedTile  = _hoveredTile;
+            placedTile.Place(currentType, _currentRotation);
             tileDeck.ConsumeTop();
             RegisterPlacement(placedCoord);
             CheckAndApplyConnections(placedCoord);
+            // 接続有無に関わらず全配置で発行（成長評価システムの起点）
+            EventBus.Publish(new TilePlacedEvent(placedTile, currentType, placedCoord));
         }
 
         // ── 接続チェック ──────────────────────────────────────────────
