@@ -919,7 +919,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 69c8daf704fd7734e8bdda5f669005df, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _windThreshold: 3
+  _gentleThreshold: 3
+  _windThreshold: 5
+  _windDelay: 5
+  _windDuration: 3
+  _windInterval: 20
 --- !u!4 &1015676106
 Transform:
   m_ObjectHideFlags: 0

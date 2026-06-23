@@ -50,8 +50,15 @@ namespace ElfVillage.Core
         private Vector3 _orbitCenter;
         private bool    _hasOrbitCenter;
 
+        // CameraController は常にカメラ本体にアタッチされるので
+        // GetComponent で自分自身の Camera を取得してキャッシュする。
+        // Camera.main は外部から null になりうるため使わない。
+        private Camera _cam;
+
         private void Start()
         {
+            _cam = GetComponent<Camera>();
+
             _yaw      = transform.eulerAngles.y;
             _distance = Mathf.Clamp(initialDistance, minDistance, maxDistance);
             _pivot    = transform.position - GetOffset(_distance, _yaw);
@@ -65,6 +72,8 @@ namespace ElfVillage.Core
 
         private void Update()
         {
+            if (_cam == null) return;   // カメラコンポーネントが存在しない場合は早期終了
+
             var mouse    = Mouse.current;
             var keyboard = Keyboard.current;
             if (mouse == null) return;
@@ -130,10 +139,10 @@ namespace ElfVillage.Core
             if (!_isPanning) return;
 
             // カメラのXZ方向ベクトルにデルタを乗せて移動（クリック位置・距離に依存しない）
-            var cam = Camera.main;
+            if (_cam == null) return;
             float scale = _distance * panSpeed;
-            Vector3 right   = cam.transform.right;   right.y   = 0f; right.Normalize();
-            Vector3 forward = cam.transform.forward; forward.y = 0f; forward.Normalize();
+            Vector3 right   = _cam.transform.right;   right.y   = 0f; right.Normalize();
+            Vector3 forward = _cam.transform.forward; forward.y = 0f; forward.Normalize();
             Vector3 move = (-right * screenDelta.x + -forward * screenDelta.y) * scale;
             _targetPivot += move;
             _pivot       += move;
@@ -193,7 +202,8 @@ namespace ElfVillage.Core
         private bool TryGetGroundPoint(Mouse mouse, out Vector3 result)
         {
             result = Vector3.zero;
-            Ray ray = Camera.main.ScreenPointToRay(mouse.position.ReadValue());
+            if (_cam == null) return false;
+            Ray ray = _cam.ScreenPointToRay(mouse.position.ReadValue());
             if (Mathf.Approximately(ray.direction.y, 0f)) return false;
             float t = -ray.origin.y / ray.direction.y;
             if (t < 0f) return false;
@@ -205,9 +215,8 @@ namespace ElfVillage.Core
         private bool TryGetScreenCenterGroundPoint(out Vector3 result)
         {
             result = Vector3.zero;
-            var cam = Camera.main;
-            if (cam == null) return false;
-            Ray ray = cam.ScreenPointToRay(new Vector2(Screen.width * 0.5f, Screen.height * 0.5f));
+            if (_cam == null) return false;
+            Ray ray = _cam.ScreenPointToRay(new Vector2(Screen.width * 0.5f, Screen.height * 0.5f));
             if (Mathf.Approximately(ray.direction.y, 0f)) return false;
             float t = -ray.origin.y / ray.direction.y;
             if (t < 0f) return false;
