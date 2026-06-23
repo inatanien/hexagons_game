@@ -107,25 +107,14 @@ namespace ElfVillage.Core
 
         // ── 左ドラッグ：パン ──────────────────────────────────────
         // スクリーンデルタ × ズーム距離 × panSpeed でクリック位置に依存しない一定移動量を実現。
-        // 配置可能タイル上は0.2秒長押しでパン開始（素早いタップはタイル配置）。
-        // タイル外（空地・配置済み）は押した瞬間に即パン開始。
+        // どこをクリックしても 0.2秒長押しでパン開始（素早いタップはタイル配置）。
+        // 配置済みタイルはコライダーが無効のため、即パンが発生して「カメラが飛ぶ」バグを防ぐ。
         private void HandlePan(Mouse mouse, Vector2 screenDelta)
         {
             if (mouse.leftButton.wasPressedThisFrame)
             {
-                Ray ray = Camera.main.ScreenPointToRay(mouse.position.ReadValue());
-                bool hitAvailableTile = Physics.Raycast(ray, out _);
-
-                if (hitAvailableTile)
-                {
-                    _panPressTime = Time.time;
-                    _isPanning    = false;
-                }
-                else
-                {
-                    _panPressTime = -1f;
-                    _isPanning    = true;
-                }
+                _panPressTime = Time.time;
+                _isPanning    = false;
             }
 
             if (!mouse.leftButton.isPressed)

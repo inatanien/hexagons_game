@@ -75,20 +75,18 @@ namespace ElfVillage.Tiles
             Color tc = tileType.tileColor;
             _previewMat.SetColor("_BaseColor", new Color(tc.r, tc.g, tc.b, 0.58f));
 
-            // デッキタイルが変わったときだけ分割線を再生成
+            // デッキタイルが変わったときだけビジュアル要素（分割線・プロップ）を再生成
             if (_lastType != tileType)
             {
                 _lastType = tileType;
                 if (_dividersRoot != null) { Destroy(_dividersRoot); _dividersRoot = null; }
 
-                if (tileType.dividerType != TileDividerType.None)
-                {
-                    _dividersRoot = new GameObject("PreviewDividers");
-                    _dividersRoot.transform.SetParent(_previewGO.transform);
-                    _dividersRoot.transform.localPosition = Vector3.zero;
-                    _dividersRoot.transform.localRotation = Quaternion.identity;
-                    HexTile.SpawnDividersFor(tileType, _dividersRoot.transform);
-                }
+                _dividersRoot = new GameObject("PreviewVisuals");
+                _dividersRoot.transform.SetParent(_previewGO.transform);
+                _dividersRoot.transform.localPosition = Vector3.zero;
+                _dividersRoot.transform.localRotation = Quaternion.identity;
+                HexTile.SpawnDividersFor(tileType, _dividersRoot.transform);
+                HexTile.SpawnPropsPreview(tileType, _dividersRoot.transform);
             }
         }
 

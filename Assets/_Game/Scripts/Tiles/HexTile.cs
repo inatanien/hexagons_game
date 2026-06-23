@@ -3,6 +3,7 @@
 //       配置済みフラグを管理する。
 
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using ElfVillage.HexGrid;
 
@@ -91,9 +92,10 @@ namespace ElfVillage.Tiles
             if (type == null) return;
             switch (type.propType)
             {
-                case TilePropType.Tree:  SpawnTrees(type, parent);  break;
-                case TilePropType.House: SpawnHouse(parent);        break;
-                case TilePropType.Water: SpawnWater(parent);        break;
+                case TilePropType.Tree:   SpawnTrees(type, parent);   break;
+                case TilePropType.House:  SpawnHouse(parent);         break;
+                case TilePropType.Water:  SpawnWater(type, parent);  break;
+                case TilePropType.Flower: SpawnFlowers(type, parent); break;
             }
             SpawnDividers(type, parent);
         }
@@ -108,6 +110,199 @@ namespace ElfVillage.Tiles
         // インスタンスメソッドからは serialized fields の値を渡して static を呼ぶ
         private void SpawnDividers(TileType type, Transform parent)
             => SpawnDividersFor(type, parent, outerRadius, tileHeight);
+
+        /// <summary>
+        /// プレビュー用プロップ生成。TilePlacementPreview から呼ぶ。
+        /// 座標ハッシュを使わず均等配置するため実際の配置と位置が若干異なる。
+        /// Water は川岸ラインのみ表示（パーティクルは省略）。
+        /// </summary>
+        public static void SpawnPropsPreview(TileType type, Transform parent,
+                                              float outerRadius = 0.95f, float tileHeight = 0.15f)
+        {
+            if (type == null) return;
+            switch (type.propType)
+            {
+                case TilePropType.Tree:   SpawnTreesStatic(type, parent, tileHeight);               break;
+                case TilePropType.House:  SpawnHouseStatic(parent, tileHeight);                      break;
+                case TilePropType.Flower: SpawnFlowersStatic(type, parent, tileHeight);             break;
+                case TilePropType.Water:  SpawnWaterPreview(type, parent, outerRadius, tileHeight); break;
+            }
+        }
+
+        private static void SpawnTreesStatic(TileType type, Transform parent, float tileHeight)
+        {
+            int   count  = Mathf.Max(1, type.propCount);
+            float ground = tileHeight + 0.01f;
+            for (int i = 0; i < count; i++)
+            {
+                float angle  = i * (360f / count) * Mathf.Deg2Rad;
+                float radius = count > 1 ? 0.45f : 0f;
+                var   offset = new Vector3(Mathf.Cos(angle) * radius, 0f, Mathf.Sin(angle) * radius);
+
+                var trunk = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                trunk.transform.SetParent(parent);
+                trunk.transform.localPosition = offset + new Vector3(0f, ground + 0.20f, 0f);
+                trunk.transform.localScale    = new Vector3(0.12f, 0.22f, 0.12f);
+                SetPropMaterial(trunk, new Color(0.42f, 0.26f, 0.10f));
+
+                var crown = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                crown.transform.SetParent(parent);
+                crown.transform.localPosition = offset + new Vector3(0f, ground + 0.60f, 0f);
+                crown.transform.localScale    = new Vector3(0.45f, 0.52f, 0.45f);
+                SetPropMaterial(crown, new Color(0.10f, 0.44f, 0.10f));
+            }
+        }
+
+        private static void SpawnHouseStatic(Transform parent, float tileHeight)
+        {
+            float ground = tileHeight + 0.01f;
+
+            var body = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            body.transform.SetParent(parent);
+            body.transform.localPosition = new Vector3(0f, ground + 0.22f, 0f);
+            body.transform.localScale    = new Vector3(0.52f, 0.44f, 0.52f);
+            SetPropMaterial(body, new Color(0.90f, 0.82f, 0.65f));
+
+            var roof = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            roof.transform.SetParent(parent);
+            roof.transform.localPosition = new Vector3(0f, ground + 0.58f, 0f);
+            roof.transform.localScale    = new Vector3(0.62f, 0.16f, 0.62f);
+            roof.transform.localRotation = Quaternion.Euler(0f, 45f, 0f);
+            SetPropMaterial(roof, new Color(0.68f, 0.22f, 0.12f));
+        }
+
+        private static void SpawnFlowersStatic(TileType type, Transform parent, float tileHeight)
+        {
+            int   count  = Mathf.Max(1, type.propCount);
+            float ground = tileHeight + 0.01f;
+            for (int i = 0; i < count; i++)
+            {
+                float angle  = i * (360f / count) * Mathf.Deg2Rad;
+                var   offset = new Vector3(Mathf.Cos(angle) * 0.35f, 0f, Mathf.Sin(angle) * 0.35f);
+                var   color  = FlowerPetalColor(i);
+
+                var stem = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                stem.transform.SetParent(parent);
+                stem.transform.localPosition = offset + new Vector3(0f, ground + 0.07f, 0f);
+                stem.transform.localScale    = new Vector3(0.03f, 0.07f, 0.03f);
+                SetPropMaterial(stem, new Color(0.25f, 0.55f, 0.15f));
+
+                var petal = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                petal.transform.SetParent(parent);
+                petal.transform.localPosition = offset + new Vector3(0f, ground + 0.17f, 0f);
+                petal.transform.localScale    = new Vector3(0.16f, 0.08f, 0.16f);
+                SetPropMaterial(petal, color);
+
+                var center = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                center.transform.SetParent(parent);
+                center.transform.localPosition = offset + new Vector3(0f, ground + 0.19f, 0f);
+                center.transform.localScale    = new Vector3(0.07f, 0.06f, 0.07f);
+                SetPropMaterial(center, new Color(1.0f, 0.88f, 0.1f));
+            }
+        }
+
+        // 川の2辺を探してベジェ川岸ラインを生成（パーティクルなし、プレビュー用）
+        private static void SpawnWaterPreview(TileType type, Transform parent,
+                                               float outerRadius, float tileHeight)
+        {
+            float inRadius = outerRadius * 0.866f;
+            var   riverEdges   = new List<int>();
+            var   fallbackEdges = new List<int>();
+            for (int d = 0; d < 6; d++)
+            {
+                var e = type.GetEdge(d);
+                if (e == EdgeType.River) riverEdges.Add(d);
+                else if (e != EdgeType.None && e != EdgeType.Field && e != EdgeType.Forest)
+                    fallbackEdges.Add(d);
+            }
+
+            int edgeA, edgeB;
+            var src = riverEdges.Count >= 2 ? riverEdges
+                    : fallbackEdges.Count >= 2 ? fallbackEdges
+                    : null;
+
+            if (src != null) { edgeA = src[0]; edgeB = src[1]; }
+            else             { edgeA = 0;       edgeB = 1; }   // 辺情報がない場合の fallback
+
+            CreateWaterFlowPreview(parent,
+                EdgeCenter(edgeA, inRadius), EdgeCenter(edgeB, inRadius),
+                outerRadius, tileHeight);
+        }
+
+        // SpawnWater の川岸ライン部分だけを静的に生成（パーティクルは含まない）
+        private static void CreateWaterFlowPreview(Transform parent, Vector3 edgeA, Vector3 edgeB,
+                                                    float outerRadius, float tileHeight)
+        {
+            float bankOffset = outerRadius * 0.25f;
+            float y          = tileHeight + 0.01f;
+
+            bool    isStraight = ((edgeA + edgeB) * 0.5f).sqrMagnitude < 0.01f;
+            Vector3 ctrl       = isStraight ? (edgeA + edgeB) * 0.5f : Vector3.zero;
+
+            const int N = 8;
+            var pts = new Vector3[N + 1];
+            for (int i = 0; i <= N; i++)
+                pts[i] = QuadBezier(edgeA, ctrl, edgeB, (float)i / N);
+
+            var inwardA  = -edgeA.normalized;
+            var outwardB =  edgeB.normalized;
+            var perpA    = new Vector3(-inwardA.z,  0f, inwardA.x);
+            var perpB    = new Vector3(-outwardB.z, 0f, outwardB.x);
+            var bankColor = new Color(0.25f, 0.50f, 0.20f);
+            const float overshoot = 0.02f;
+
+            // edgeA 側の端セグメント
+            float lenA = (pts[1] - edgeA).magnitude + 0.01f;
+            var   rotA = Quaternion.LookRotation(new Vector3(inwardA.x, 0f, inwardA.z), Vector3.up);
+            for (int side = -1; side <= 1; side += 2)
+            {
+                var b = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                b.transform.SetParent(parent);
+                b.transform.localPosition = new Vector3(
+                    edgeA.x + perpA.x * bankOffset * side + inwardA.x * (lenA - overshoot) * 0.5f, y,
+                    edgeA.z + perpA.z * bankOffset * side + inwardA.z * (lenA - overshoot) * 0.5f);
+                b.transform.localRotation = rotA;
+                b.transform.localScale    = new Vector3(0.04f, 0.03f, lenA + overshoot);
+                SetPropMaterial(b, bankColor);
+            }
+
+            // 中間セグメント
+            for (int i = 1; i <= N - 2; i++)
+            {
+                var seg  = pts[i + 1] - pts[i];
+                var mid  = (pts[i] + pts[i + 1]) * 0.5f;
+                var len  = seg.magnitude + 0.01f;
+                var d    = seg / len;
+                var perp = new Vector3(-d.z, 0f, d.x);
+                var rot  = Quaternion.LookRotation(new Vector3(d.x, 0f, d.z), Vector3.up);
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    var b = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    b.transform.SetParent(parent);
+                    b.transform.localPosition = new Vector3(
+                        mid.x + perp.x * bankOffset * side, y,
+                        mid.z + perp.z * bankOffset * side);
+                    b.transform.localRotation = rot;
+                    b.transform.localScale    = new Vector3(0.04f, 0.03f, len);
+                    SetPropMaterial(b, bankColor);
+                }
+            }
+
+            // edgeB 側の端セグメント
+            float lenB = (edgeB - pts[N - 1]).magnitude + 0.01f;
+            var   rotB = Quaternion.LookRotation(new Vector3(outwardB.x, 0f, outwardB.z), Vector3.up);
+            for (int side = -1; side <= 1; side += 2)
+            {
+                var b = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                b.transform.SetParent(parent);
+                b.transform.localPosition = new Vector3(
+                    edgeB.x + perpB.x * bankOffset * side - outwardB.x * (lenB - overshoot) * 0.5f, y,
+                    edgeB.z + perpB.z * bankOffset * side - outwardB.z * (lenB - overshoot) * 0.5f);
+                b.transform.localRotation = rotB;
+                b.transform.localScale    = new Vector3(0.04f, 0.03f, lenB + overshoot);
+                SetPropMaterial(b, bankColor);
+            }
+        }
 
         /// <summary>プレビューなど HexTile 外からも呼べる静的版。</summary>
         public static void SpawnDividersFor(TileType type, Transform parent,
@@ -149,6 +344,64 @@ namespace ElfVillage.Tiles
                         SpawnLine(parent, pos, rot, scl, EdgeTypeToColor(type.edges[i]));
                     }
                     break;
+
+                case TileDividerType.VerticalPair:
+                {
+                    // 上辺(A-B)・下辺(E-D)をそれぞれ3等分した分割点同士を結ぶ2本縦線
+                    // 分割点 X = ±R/6 (3等分なので辺長R の 1/6 ずつオフセット)
+                    // 線の長さ = 上辺Z から下辺Z = 2 × inRadius = R√3
+                    float inRadius2 = R * 0.866f;
+                    float xOff      = R / 6f;
+                    float lineLen   = inRadius2 * 2f;
+                    var   riverCol  = new Color(0.18f, 0.52f, 0.92f);
+                    SpawnLine(parent, new Vector3(-xOff, y, 0f), Quaternion.identity,
+                              new Vector3(0.07f, 0.03f, lineLen), riverCol);
+                    SpawnLine(parent, new Vector3( xOff, y, 0f), Quaternion.identity,
+                              new Vector3(0.07f, 0.03f, lineLen), riverCol);
+                    break;
+                }
+
+                case TileDividerType.BendPairWide:
+                {
+                    // dir0(右辺)→dir4(左上辺) の緩やかカーブ用。下向きアーチ2本。
+                    // SpawnWater の bezier(中心通過・下方) と水パーティクルが整合する設計
+                    float inRW = R * 0.866f;
+                    var   colW = new Color(0.18f, 0.52f, 0.92f);
+                    // Inner bank (下寄り): (5R/6, inR/3) → 底(0, inR/6) → (-5R/6, inR/3)
+                    SpawnBankSegment(parent, new Vector3(5f*R/6f, 0f, inRW/3f),
+                                             new Vector3(0f, 0f, inRW/6f), y, 0.07f, colW);
+                    SpawnBankSegment(parent, new Vector3(0f, 0f, inRW/6f),
+                                             new Vector3(-5f*R/6f, 0f, inRW/3f), y, 0.07f, colW);
+                    // Outer bank (上寄り): (2R/3, 2inR/3) → 底(0, inR/2) → (-2R/3, 2inR/3)
+                    SpawnBankSegment(parent, new Vector3(2f*R/3f, 0f, 2f*inRW/3f),
+                                             new Vector3(0f, 0f, inRW/2f), y, 0.07f, colW);
+                    SpawnBankSegment(parent, new Vector3(0f, 0f, inRW/2f),
+                                             new Vector3(-2f*R/3f, 0f, 2f*inRW/3f), y, 0.07f, colW);
+                    break;
+                }
+
+                case TileDividerType.BendPair:
+                {
+                    // dir0辺(右)→dir5辺(上) の3等分点を結ぶL字折れ線2本（川曲がりタイル用）
+                    // Inner: V1(右上頂点)寄り。 Outer: V1から遠い側。
+                    // 各折れ線は 水平セグメント + 垂直セグメント の2本で構成
+                    float inR      = R * 0.866f;
+                    var   col      = new Color(0.18f, 0.52f, 0.92f);
+                    var   horizRot = Quaternion.LookRotation(Vector3.right, Vector3.up);
+
+                    // Inner bank: (2R/3, 2inR/3) → corner(R/6, 2inR/3) → (R/6, inR)
+                    SpawnLine(parent, new Vector3(5f * R / 12f, y, 2f * inR / 3f),
+                              horizRot, new Vector3(0.07f, 0.03f, R / 2f), col);
+                    SpawnLine(parent, new Vector3(R / 6f, y, 5f * inR / 6f),
+                              Quaternion.identity, new Vector3(0.07f, 0.03f, inR / 3f), col);
+
+                    // Outer bank: (5R/6, inR/3) → corner(-R/6, inR/3) → (-R/6, inR)
+                    SpawnLine(parent, new Vector3(R / 3f, y, inR / 3f),
+                              horizRot, new Vector3(0.07f, 0.03f, R), col);
+                    SpawnLine(parent, new Vector3(-R / 6f, y, 2f * inR / 3f),
+                              Quaternion.identity, new Vector3(0.07f, 0.03f, 2f * inR / 3f), col);
+                    break;
+                }
             }
         }
 
@@ -172,6 +425,18 @@ namespace ElfVillage.Tiles
             go.transform.localRotation = localRot;
             go.transform.localScale    = localScale;
             SetPropMaterial(go, color);
+        }
+
+        // from→to を結ぶ1本のセグメントを生成（BendPairWide 用）
+        private static void SpawnBankSegment(Transform parent, Vector3 from, Vector3 to,
+                                             float y, float width, Color color)
+        {
+            var   center = new Vector3((from.x + to.x) * 0.5f, y, (from.z + to.z) * 0.5f);
+            var   dir    = new Vector3(to.x - from.x, 0f, to.z - from.z);
+            float len    = dir.magnitude;
+            if (len < 0.001f) return;
+            SpawnLine(parent, center, Quaternion.LookRotation(dir / len, Vector3.up),
+                      new Vector3(width, 0.03f, len), color);
         }
 
         private void SpawnTrees(TileType type, Transform parent)
@@ -204,6 +469,59 @@ namespace ElfVillage.Tiles
             SetPropMaterial(crown, new Color(0.10f, 0.44f, 0.10f));
         }
 
+        private void SpawnFlowers(TileType type, Transform parent)
+        {
+            int count = Mathf.Max(1, type.propCount);
+            for (int i = 0; i < count; i++)
+            {
+                // coord ベースの擬似乱数で花の位置・色を決定（再現性あり）
+                int   seed   = Data.coord.q * 31 + Data.coord.r * 17 + i * 7;
+                float angle  = (i * (360f / count) + (seed % 40) - 20f) * Mathf.Deg2Rad;
+                float radius = 0.25f + (seed % 100) / 1000f * 3f; // 0.25〜0.55
+                var   offset = new Vector3(Mathf.Cos(angle) * radius, 0f, Mathf.Sin(angle) * radius);
+                var   color  = FlowerPetalColor(seed);
+                SpawnSingleFlower(parent, offset, color);
+            }
+        }
+
+        private void SpawnSingleFlower(Transform parent, Vector3 offset, Color petalColor)
+        {
+            float ground = tileHeight + 0.01f;
+
+            // 茎
+            var stem = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            stem.transform.SetParent(parent);
+            stem.transform.localPosition = offset + new Vector3(0f, ground + 0.07f, 0f);
+            stem.transform.localScale    = new Vector3(0.03f, 0.07f, 0.03f);
+            SetPropMaterial(stem, new Color(0.25f, 0.55f, 0.15f));
+
+            // 花びら（少し平たい球）
+            var petal = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            petal.transform.SetParent(parent);
+            petal.transform.localPosition = offset + new Vector3(0f, ground + 0.17f, 0f);
+            petal.transform.localScale    = new Vector3(0.16f, 0.08f, 0.16f);
+            SetPropMaterial(petal, petalColor);
+
+            // 花の中心（小さい黄色の球）
+            var center = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            center.transform.SetParent(parent);
+            center.transform.localPosition = offset + new Vector3(0f, ground + 0.19f, 0f);
+            center.transform.localScale    = new Vector3(0.07f, 0.06f, 0.07f);
+            SetPropMaterial(center, new Color(1.0f, 0.88f, 0.1f));
+        }
+
+        // 座標ハッシュから花びらの色を決定（ピンク・白・薄紫・薄青の4色）
+        private static Color FlowerPetalColor(int seed)
+        {
+            switch (seed % 4)
+            {
+                case 0:  return new Color(1.0f, 0.55f, 0.70f); // ピンク
+                case 1:  return new Color(0.95f, 0.95f, 0.95f); // 白
+                case 2:  return new Color(0.75f, 0.60f, 0.95f); // 薄紫
+                default: return new Color(0.60f, 0.80f, 1.00f); // 薄青
+            }
+        }
+
         private void SpawnHouse(Transform parent)
         {
             float ground = tileHeight + 0.01f;
@@ -222,14 +540,243 @@ namespace ElfVillage.Tiles
             SetPropMaterial(roof, new Color(0.68f, 0.22f, 0.12f));
         }
 
-        private void SpawnWater(Transform parent)
+        private void SpawnWater(TileType type, Transform parent)
         {
-            // Plane は 10×10 単位なので、0.165 倍で約 1.65 の正方形
-            var water = GameObject.CreatePrimitive(PrimitiveType.Plane);
-            water.transform.SetParent(parent);
-            water.transform.localPosition = new Vector3(0f, tileHeight + 0.008f, 0f);
-            water.transform.localScale    = new Vector3(0.165f, 1f, 0.165f);
-            SetPropMaterial(water, new Color(0.18f, 0.52f, 0.92f));
+            float inRadius = outerRadius * 0.866f;
+
+            // 川の辺を探す優先順位:
+            //   1. EdgeType.River が設定された辺
+            //   2. Field・None・Forest 以外の辺（River_Bend など旧データ互換）
+            //   3. 座標ハッシュによるランダム選択（ユーザー指定「6辺からランダム2辺」）
+            var riverEdges   = new List<int>();
+            var fallbackEdges = new List<int>();
+            if (type != null)
+            {
+                for (int d = 0; d < 6; d++)
+                {
+                    var e = type.GetEdge(d);
+                    if (e == EdgeType.River) riverEdges.Add(d);
+                    else if (e != EdgeType.None && e != EdgeType.Field && e != EdgeType.Forest)
+                        fallbackEdges.Add(d);
+                }
+            }
+
+            int edgeA, edgeB;
+            var src = riverEdges.Count >= 2 ? riverEdges
+                    : fallbackEdges.Count >= 2 ? fallbackEdges
+                    : null;
+
+            if (src != null)
+            {
+                edgeA = src[0];
+                edgeB = src[1];
+            }
+            else
+            {
+                // 座標ハッシュで再現性ある 2 辺を選択
+                int h = Mathf.Abs(Data.coord.q * 31 + Data.coord.r * 17 + Data.coord.s * 7);
+                edgeA = h % 6;
+                edgeB = (edgeA + 1 + (h / 6) % 5) % 6;
+            }
+
+            var posA = EdgeCenter(edgeA, inRadius);
+            var posB = EdgeCenter(edgeB, inRadius);
+            CreateWaterFlow(parent, posA, posB);
+        }
+
+        // dir 方向の辺の中心をタイルローカル座標で返す（フラットトップ六角形）
+        // s_DirToWorldAngle を使って ToWorldPosition と一致させる
+        private static Vector3 EdgeCenter(int dir, float inRadius)
+        {
+            float angle = s_DirToWorldAngle[((dir % 6) + 6) % 6] * Mathf.Deg2Rad;
+            return new Vector3(Mathf.Cos(angle) * inRadius, 0f, Mathf.Sin(angle) * inRadius);
+        }
+
+        private void CreateWaterFlow(Transform parent, Vector3 edgeA, Vector3 edgeB)
+        {
+            float riverWidth = outerRadius * 0.5f;
+            float bankOffset = riverWidth * 0.5f;
+            float y          = tileHeight + 0.01f;
+
+            // 2辺の中点がタイル中心に近い = 対向辺 = 直線。それ以外はタイル中心を制御点とするベジェ曲線
+            bool    isStraight = ((edgeA + edgeB) * 0.5f).sqrMagnitude < 0.01f;
+            Vector3 ctrl       = isStraight ? (edgeA + edgeB) * 0.5f : Vector3.zero;
+
+            // 曲線を8分割でサンプリング
+            const int N = 8;
+            var pts = new Vector3[N + 1];
+            for (int i = 0; i <= N; i++)
+                pts[i] = QuadBezier(edgeA, ctrl, edgeB, (float)i / N);
+
+            // 辺の法線方向（辺に垂直にタイル内へ向かう方向）
+            // これで端のキューブの面が六角形の辺と完全に一致する
+            var inwardA  = -edgeA.normalized;   // edgeA → タイル中心
+            var outwardB =  edgeB.normalized;   // タイル中心 → edgeB
+            var perpA    = new Vector3(-inwardA.z,  0f, inwardA.x);
+            var perpB    = new Vector3(-outwardB.z, 0f, outwardB.x);
+
+            // 隣接タイルとの継ぎ目の隙間をなくすため、端のキューブを境界から少しはみ出させる
+            const float overshoot = 0.02f;
+
+            // ── 端（edgeA側）: 辺上から overshoot だけ外へはみ出して配置 ──────
+            float lenA = (pts[1] - edgeA).magnitude + 0.01f;
+            var   rotA = Quaternion.LookRotation(new Vector3(inwardA.x, 0f, inwardA.z), Vector3.up);
+            for (int side = -1; side <= 1; side += 2)
+            {
+                var bank = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                bank.transform.SetParent(parent);
+                bank.transform.localPosition = new Vector3(
+                    edgeA.x + perpA.x * bankOffset * side + inwardA.x * (lenA - overshoot) * 0.5f, y,
+                    edgeA.z + perpA.z * bankOffset * side + inwardA.z * (lenA - overshoot) * 0.5f);
+                bank.transform.localRotation = rotA;
+                bank.transform.localScale    = new Vector3(0.04f, 0.03f, lenA + overshoot);
+                SetPropMaterial(bank, new Color(0.25f, 0.50f, 0.20f));
+            }
+
+            // ── 中間: ベジェ曲線に追従する通常セグメント ──────────────────
+            for (int i = 1; i <= N - 2; i++)
+            {
+                var seg  = pts[i + 1] - pts[i];
+                var mid  = (pts[i] + pts[i + 1]) * 0.5f;
+                var len  = seg.magnitude + 0.01f;
+                var dir  = seg / len;
+                var perp = new Vector3(-dir.z, 0f, dir.x);
+                var rot  = Quaternion.LookRotation(new Vector3(dir.x, 0f, dir.z), Vector3.up);
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    var bank = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    bank.transform.SetParent(parent);
+                    bank.transform.localPosition = new Vector3(
+                        mid.x + perp.x * bankOffset * side, y,
+                        mid.z + perp.z * bankOffset * side);
+                    bank.transform.localRotation = rot;
+                    bank.transform.localScale    = new Vector3(0.04f, 0.03f, len);
+                    SetPropMaterial(bank, new Color(0.25f, 0.50f, 0.20f));
+                }
+            }
+
+            // ── 端（edgeB側）: 辺上から overshoot だけ外へはみ出して配置 ──────
+            float lenB = (edgeB - pts[N - 1]).magnitude + 0.01f;
+            var   rotB = Quaternion.LookRotation(new Vector3(outwardB.x, 0f, outwardB.z), Vector3.up);
+            for (int side = -1; side <= 1; side += 2)
+            {
+                var bank = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                bank.transform.SetParent(parent);
+                bank.transform.localPosition = new Vector3(
+                    edgeB.x + perpB.x * bankOffset * side - outwardB.x * (lenB - overshoot) * 0.5f, y,
+                    edgeB.z + perpB.z * bankOffset * side - outwardB.z * (lenB - overshoot) * 0.5f);
+                bank.transform.localRotation = rotB;
+                bank.transform.localScale    = new Vector3(0.04f, 0.03f, lenB + overshoot);
+                SetPropMaterial(bank, new Color(0.25f, 0.50f, 0.20f));
+            }
+
+            // ── パーティクル: 曲線を4分割してそれぞれにエミッターを配置 ────
+            // 各エミッターが担当区間に沿って粒子を流し、合わせると自然な流れに見える
+            const int psCount  = 4;
+            float     segLen   = 0f;
+            for (int i = 0; i < N; i++) segLen += (pts[i + 1] - pts[i]).magnitude;
+            segLen /= psCount;
+
+            for (int k = 0; k < psCount; k++)
+            {
+                float tm  = ((float)k + 0.5f) / psCount;
+                float t0  = (float)k       / psCount;
+                float t1  = (float)(k + 1) / psCount;
+                var   pm  = QuadBezier(edgeA, ctrl, edgeB, tm);
+                var   dir = (QuadBezier(edgeA, ctrl, edgeB, t1)
+                           - QuadBezier(edgeA, ctrl, edgeB, t0)).normalized;
+
+                var go = new GameObject("WaterPS");
+                go.transform.SetParent(parent);
+                go.transform.localPosition = new Vector3(pm.x, y + 0.015f, pm.z);
+                go.transform.localRotation = Quaternion.LookRotation(
+                    new Vector3(dir.x, 0f, dir.z), Vector3.up);
+
+                var ps  = go.AddComponent<ParticleSystem>();
+                var mat = GetWaterMaterial();
+                if (mat != null) go.GetComponent<ParticleSystemRenderer>().material = mat;
+                SetupWaterParticles(ps, segLen, riverWidth);
+                ps.Play();
+            }
+        }
+
+        // 2次ベジェ曲線: P0→制御点P1→P2 を t∈[0,1] でサンプリング
+        private static Vector3 QuadBezier(Vector3 p0, Vector3 p1, Vector3 p2, float t)
+        {
+            float mt = 1f - t;
+            return mt * mt * p0 + 2f * mt * t * p1 + t * t * p2;
+        }
+
+        private static void SetupWaterParticles(ParticleSystem ps, float segLen, float riverWidth)
+        {
+            ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+
+            const float flowSpeed = 0.75f;
+
+            var main = ps.main;
+            main.loop            = true;
+            main.duration        = 3f;
+            main.maxParticles    = 25; // 4つのPSで合計100
+            main.startLifetime   = new ParticleSystem.MinMaxCurve(
+                segLen / flowSpeed * 0.85f, segLen / flowSpeed * 1.15f);
+            main.startSpeed      = new ParticleSystem.MinMaxCurve(0f);
+            main.startSize       = new ParticleSystem.MinMaxCurve(0.05f, 0.11f);
+            main.startColor      = new ParticleSystem.MinMaxGradient(
+                new Color(0.35f, 0.70f, 1.00f, 0.85f),
+                new Color(0.65f, 0.90f, 1.00f, 0.95f));
+            main.gravityModifier = new ParticleSystem.MinMaxCurve(0f);
+            main.simulationSpace = ParticleSystemSimulationSpace.Local;
+
+            var em = ps.emission;
+            em.rateOverTime = 10f; // 4つ合計で 40/sec
+
+            // 担当区間（1/4の長さ）の川幅のBox
+            var sh = ps.shape;
+            sh.shapeType = ParticleSystemShapeType.Box;
+            sh.scale     = new Vector3(riverWidth * 0.80f, 0.01f, segLen);
+
+            // ローカルZ方向（各エミッターの向き = 曲線接線方向）に流す
+            var vel = ps.velocityOverLifetime;
+            vel.enabled = true;
+            vel.space   = ParticleSystemSimulationSpace.Local;
+            vel.x = new ParticleSystem.MinMaxCurve(-0.02f, 0.02f);
+            vel.y = new ParticleSystem.MinMaxCurve(0f, 0f);   // TwoConstants に統一（Constantとの混在不可）
+            vel.z = new ParticleSystem.MinMaxCurve(flowSpeed * 0.85f, flowSpeed * 1.15f);
+
+            var col = ps.colorOverLifetime;
+            col.enabled = true;
+            var g = new Gradient();
+            g.SetKeys(
+                new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+                new[] { new GradientAlphaKey(0f,    0f),   new GradientAlphaKey(0.85f, 0.08f),
+                        new GradientAlphaKey(0.85f, 0.85f), new GradientAlphaKey(0f,    1f) });
+            col.color = new ParticleSystem.MinMaxGradient(g);
+        }
+
+        // マテリアルを一度だけ生成してキャッシュ（毎回生成すると URP Render Graph の
+        // 透明パス再コンパイルが走り、置いた瞬間フレームがグレーになるバグを防ぐ）
+        private static Material s_waterMat;
+
+        private static Material GetWaterMaterial()
+        {
+            if (s_waterMat != null) return s_waterMat;
+
+            var shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+            if (shader == null)
+            {
+                Debug.LogWarning("[HexTile] URP Particles/Unlit shader not found — water particles disabled");
+                return null;
+            }
+
+            s_waterMat = new Material(shader) { name = "WaterFlow_Runtime" };
+            // URP 17: キーワードベースの透明設定のみ使用。
+            // _SrcBlend/_DstBlend を手動設定すると Render Graph の
+            // ブレンドステート管理と競合してフレームが壊れることがある。
+            s_waterMat.SetFloat("_Surface", 1f);
+            s_waterMat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            s_waterMat.SetColor("_BaseColor", Color.white);
+            s_waterMat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            return s_waterMat;
         }
 
         private static void SetPropMaterial(GameObject go, Color color)

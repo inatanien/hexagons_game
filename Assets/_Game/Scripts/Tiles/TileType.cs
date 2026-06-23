@@ -16,19 +16,23 @@ namespace ElfVillage.Tiles
 
     public enum TilePropType
     {
-        None  = 0,
-        Tree  = 1,
-        House = 2,
-        Water = 3,
+        None   = 0,
+        Tree   = 1,
+        House  = 2,
+        Water  = 3,
+        Flower = 4,
     }
 
     // タイル内部に描く分割線の種類
     public enum TileDividerType
     {
-        None       = 0,
-        StraightH  = 1, // X軸方向の直線（Forest_Edge 旧バージョン）
-        BendE      = 2, // East頂点のV字線（River_Bend 旧バージョン）
-        Hex6Spokes = 3, // 6方向スポーク（EdgeType 色で6分割を表現）
+        None         = 0,
+        StraightH    = 1, // X軸方向の直線（Forest_Edge 旧バージョン）
+        BendE        = 2, // East頂点のV字線（River_Bend 旧バージョン）
+        Hex6Spokes   = 3, // 6方向スポーク（EdgeType 色で6分割を表現）
+        VerticalPair = 4, // 上下辺を3等分した分割点を結ぶ2本の縦線（川直線タイル用）
+        BendPair     = 5, // dir0辺→dir5辺 の3等分点を結ぶL字折れ線2本（川曲がりタイル用）
+        BendPairWide = 6, // dir0辺→dir4辺 の3等分点を結ぶ下向きアーチ2本（川・緩カーブ用）
     }
 
     [CreateAssetMenu(fileName = "TileType_", menuName = "ElfVillage/TileType")]
@@ -37,6 +41,10 @@ namespace ElfVillage.Tiles
         [Header("基本情報")]
         public string tileName = "Unnamed";
         public Color tileColor = Color.white;
+
+        [Header("有効フラグ")]
+        [Tooltip("false にするとデッキ・ワールド生成の両方に出現しなくなる。データは保持されるので後から true に戻せる")]
+        public bool isActive = true;
 
         [Header("プロップ設定")]
         public TilePropType propType  = TilePropType.None;

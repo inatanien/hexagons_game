@@ -48,23 +48,23 @@ namespace ElfVillage.Tiles
 
             int total = 0;
             foreach (var e in entries)
-                total += Mathf.Max(1, e.weight);
+                if (e.tileType != null && e.tileType.isActive)
+                    total += Mathf.Max(1, e.weight);
+
+            if (total == 0) return; // アクティブなエントリがない
 
             int roll = Random.Range(0, total);
             int cumulative = 0;
             foreach (var e in entries)
             {
+                if (e.tileType == null || !e.tileType.isActive) continue;
                 cumulative += Mathf.Max(1, e.weight);
                 if (roll < cumulative)
                 {
-                    if (e.tileType != null) _hand.Add(e.tileType);
+                    _hand.Add(e.tileType);
                     return;
                 }
             }
-
-            // フォールバック: 最後のエントリを使用
-            if (entries[entries.Length - 1].tileType != null)
-                _hand.Add(entries[entries.Length - 1].tileType);
         }
     }
 }

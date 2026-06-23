@@ -36,6 +36,8 @@ namespace ElfVillage.Tiles
         private readonly HashSet<HexCoord> _placedCoords = new();
         // 配置可能座標（差分管理・O(1) 検索）
         private readonly HashSet<HexCoord> _availableCoords = new();
+        // isActive == true のみキャッシュ（Start で確定）
+        private TileType[] _activeWorldTypes;
 
         // ── 入力状態 ─────────────────────────────────────────────────
         private int   _currentRotation = 0;
@@ -56,6 +58,12 @@ namespace ElfVillage.Tiles
         private void Start()
         {
             _mainCamera = Camera.main;
+
+            // isActive なタイルタイプのみをワールド生成に使用するキャッシュを作成
+            _activeWorldTypes = System.Array.FindAll(
+                worldTileTypes ?? new TileType[0],
+                t => t != null && t.isActive
+            );
 
             // 初期タイルは中央のみ生成・配置可能に設定
             EnsureTileExists(HexCoord.Zero);
@@ -85,10 +93,10 @@ namespace ElfVillage.Tiles
             tile.Initialize(coord, tileSize);
             go.name = coord.ToString();
 
-            if (worldTileTypes != null && worldTileTypes.Length > 0)
+            if (_activeWorldTypes != null && _activeWorldTypes.Length > 0)
             {
                 int hash = Mathf.Abs(coord.q * 73856093 ^ coord.r * 19349663 ^ coord.s * 83492791);
-                tile.SetWorldType(worldTileTypes[hash % worldTileTypes.Length]);
+                tile.SetWorldType(_activeWorldTypes[hash % _activeWorldTypes.Length]);
             }
 
             _grid[coord] = tile;

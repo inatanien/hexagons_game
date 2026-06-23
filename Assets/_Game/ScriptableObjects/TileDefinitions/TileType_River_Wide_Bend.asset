@@ -10,10 +10,11 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e8f976305810e6d4cbf6c637719715e4, type: 3}
-  m_Name: TileType_Field
-  m_EditorClassIdentifier: 
-  tileName: Field
-  tileColor: {r: 0.76, g: 0.88, b: 0.34, a: 1}
-  propType: 4
-  propCount: 5
-  edges: 020000000200000002000000020000000200000002000000
+  m_Name: TileType_River_Wide_Bend
+  m_EditorClassIdentifier:
+  tileName: "川（緩カーブ）"
+  tileColor: {r: 0.25, g: 0.58, b: 0.92, a: 1}
+  propType: 3
+  propCount: 1
+  dividerType: 6
+  edges: 030000000200000002000000020000000300000002000000

@@ -124,7 +124,7 @@ namespace ElfVillage.Tiles
                 var main = _ps.main;
                 main.loop            = true;
                 main.duration        = 4f;
-                main.maxParticles    = 150;
+                main.maxParticles    = 60;
                 main.startLifetime   = new ParticleSystem.MinMaxCurve(4.0f, 7.0f);
                 // 初速はほぼゼロ — 落下は重力に任せる
                 main.startSpeed      = new ParticleSystem.MinMaxCurve(0f, 0.15f);
@@ -137,7 +137,7 @@ namespace ElfVillage.Tiles
 
                 // Emission
                 var em = _ps.emission;
-                em.rateOverTime = 15f;
+                em.rateOverTime = 6f;
 
                 // Shape（UpdateBounds で上書きされる）
                 var sh = _ps.shape;
@@ -176,14 +176,12 @@ namespace ElfVillage.Tiles
                 ));
             }
 
-            // TODO: 後で本来の葉色に戻す
-            // 現在はデバッグ用に明るい黄白でグロー表示
+            // 葉らしく黄緑〜黄色の 2 色ランダム（tileColor ベース）
             private static ParticleSystem.MinMaxGradient LeafColorGradient(Color baseColor)
             {
-                return new ParticleSystem.MinMaxGradient(
-                    new Color(1.0f, 1.0f, 0.6f, 1f),   // 明るい黄色
-                    new Color(0.8f, 1.0f, 0.8f, 1f)    // 明るい黄緑
-                );
+                var c1 = Color.Lerp(baseColor, new Color(0.75f, 0.95f, 0.20f, 1f), 0.25f);
+                var c2 = Color.Lerp(baseColor, new Color(0.90f, 0.85f, 0.10f, 1f), 0.30f);
+                return new ParticleSystem.MinMaxGradient(c1, c2);
             }
 
             // 0→不透明（素早く）→不透明→0 のフェードグラデーション
@@ -201,8 +199,7 @@ namespace ElfVillage.Tiles
                 return new ParticleSystem.MinMaxGradient(g);
             }
 
-            // URP Particles/Unlit（加算合成）マテリアルを手続き生成
-            // TODO: 後で Alpha blend（_Blend=0, _DstBlend=10）に戻して葉らしい半透明演出にする
+            // URP Particles/Unlit（半透明アルファブレンド）マテリアルを手続き生成
             private static Material BuildMaterial()
             {
                 var shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
@@ -211,9 +208,9 @@ namespace ElfVillage.Tiles
 
                 var mat = new Material(shader) { name = "ForestBreath_Runtime" };
                 mat.SetFloat("_Surface",      1f);   // Transparent
-                mat.SetFloat("_Blend",        2f);   // Additive（加算合成 = グロー）
+                mat.SetFloat("_Blend",        0f);   // Alpha blend
                 mat.SetFloat("_SrcBlend",     5f);   // SrcAlpha
-                mat.SetFloat("_DstBlend",     1f);   // One
+                mat.SetFloat("_DstBlend",    10f);   // OneMinusSrcAlpha
                 mat.SetFloat("_ZWrite",       0f);
                 mat.SetFloat("_AlphaToMask",  0f);
                 mat.SetColor("_BaseColor", Color.white);
