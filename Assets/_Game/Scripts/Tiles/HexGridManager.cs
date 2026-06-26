@@ -40,8 +40,9 @@ namespace ElfVillage.Tiles
         private TileType[] _activeWorldTypes;
 
         // ── 入力状態 ─────────────────────────────────────────────────
-        private int   _currentRotation = 0;
-        private float _leftPressTime   = -1f;
+        private int   _currentRotation  = 0;
+        private float _leftPressTime    = -1f;
+        private bool  _firstTilePlaced  = false;
 
         // タップ vs 長押し判定しきい値（CameraController と合わせること）
         private const float PlaceTapThreshold = 0.2f;
@@ -200,6 +201,12 @@ namespace ElfVillage.Tiles
             CheckAndApplyConnections(placedCoord);
             // 接続有無に関わらず全配置で発行（成長評価システムの起点）
             EventBus.Publish(new TilePlacedEvent(placedTile, currentType, placedCoord));
+
+            if (!_firstTilePlaced)
+            {
+                _firstTilePlaced = true;
+                EventBus.Publish(new FirstTilePlacedEvent());
+            }
         }
 
         // ── 接続チェック ──────────────────────────────────────────────
@@ -220,7 +227,9 @@ namespace ElfVillage.Tiles
                 HexCoord nCoord = coord.Neighbor(dir);
                 if (!_grid.TryGetValue(nCoord, out HexTile neighbor)) continue;
                 if (!neighbor.IsPlaced) continue;
-                if (neighbor.Data.tileType != placed.Data.tileType) continue;
+                bool sameType     = neighbor.Data.tileType == placed.Data.tileType;
+                bool sameCategory = EdgeMatcher.SameCategory(placed.Data.tileType, neighbor.Data.tileType);
+                if (!sameType && !sameCategory) continue;
 
                 placed.MarkConnectedEdge(dir);
                 neighbor.MarkConnectedEdge((dir + 3) % 6);

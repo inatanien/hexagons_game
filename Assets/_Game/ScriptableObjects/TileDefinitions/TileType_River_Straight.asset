@@ -14,6 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   tileName: "\u5DDD\uFF08\u76F4\u7DDA\uFF09"
   tileColor: {r: 0.3, g: 0.65, b: 0.95, a: 1}
+  tileCategory: River
   propType: 3
   propCount: 1
   edges: 030000000200000002000000030000000200000002000000

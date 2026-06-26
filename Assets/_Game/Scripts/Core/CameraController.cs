@@ -26,6 +26,10 @@ namespace ElfVillage.Core
         [Header("スムージング")]
         [SerializeField] private float smoothSpeed = 12f;
 
+        [Header("演出")]
+        [Tooltip("1枚目タイル配置時に引く距離")]
+        [SerializeField] private float firstTilePullbackDistance = 7f;
+
         // 目標値（入力で即時更新）
         private Vector3 _targetPivot;
         private float   _targetYaw;
@@ -54,6 +58,21 @@ namespace ElfVillage.Core
         // GetComponent で自分自身の Camera を取得してキャッシュする。
         // Camera.main は外部から null になりうるため使わない。
         private Camera _cam;
+
+        private void OnEnable()
+        {
+            EventBus.Subscribe<FirstTilePlacedEvent>(OnFirstTilePlaced);
+        }
+
+        private void OnDisable()
+        {
+            EventBus.Unsubscribe<FirstTilePlacedEvent>(OnFirstTilePlaced);
+        }
+
+        private void OnFirstTilePlaced(FirstTilePlacedEvent _)
+        {
+            _targetDistance = Mathf.Clamp(firstTilePullbackDistance, minDistance, maxDistance);
+        }
 
         private void Start()
         {

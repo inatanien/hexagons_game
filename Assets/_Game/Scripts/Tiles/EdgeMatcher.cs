@@ -44,9 +44,21 @@ namespace ElfVillage.Tiles
             {
                 if (!grid.TryGetValue(coord.Neighbor(dir), out HexTile neighborTile)) continue;
                 if (!neighborTile.IsPlaced) continue;
+                // 同一カテゴリのタイル同士は辺の種別によらず常に互換
+                if (SameCategory(tileType, neighborTile.Data.tileType)) continue;
                 if (!candidate.CanConnect(neighborTile.Data, dir)) return false;
             }
             return true;
+        }
+
+        /// <summary>
+        /// 両タイルが空でない同一 tileCategory を持つか判定する。
+        /// </summary>
+        public static bool SameCategory(TileType a, TileType b)
+        {
+            if (a == null || b == null) return false;
+            if (string.IsNullOrEmpty(a.tileCategory)) return false;
+            return a.tileCategory == b.tileCategory;
         }
 
         /// <summary>

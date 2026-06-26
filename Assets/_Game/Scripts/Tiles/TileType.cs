@@ -39,8 +39,10 @@ namespace ElfVillage.Tiles
     public class TileType : ScriptableObject
     {
         [Header("基本情報")]
-        public string tileName = "Unnamed";
-        public Color tileColor = Color.white;
+        public string tileName     = "Unnamed";
+        public Color  tileColor    = Color.white;
+        [Tooltip("同一カテゴリのタイル同士を接続扱いにする（例: \"River\", \"Forest\"）。空欄は同一 SO のみ接続")]
+        public string tileCategory = "";
 
         [Header("有効フラグ")]
         [Tooltip("false にするとデッキ・ワールド生成の両方に出現しなくなる。データは保持されるので後から true に戻せる")]
