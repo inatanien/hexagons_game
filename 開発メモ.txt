@@ -68,3 +68,15 @@ git push
 ⑤ claude を起動
 
 この順番を習慣にします。
+
+ーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーー
+
+VS Codeのウィンドウをリロード（おすすめ）
+
+一番簡単で安全。
+
+Ctrl + Shift + P
+Developer: Reload Window
+Enter
+
+これでVS Codeだけ再起動されて、Claude Code拡張も読み込み直される。

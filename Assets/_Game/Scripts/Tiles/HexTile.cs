@@ -688,14 +688,15 @@ namespace ElfVillage.Tiles
 
                 var go = new GameObject("WaterPS");
                 go.transform.SetParent(parent);
-                go.transform.localPosition = new Vector3(pm.x, y + 0.015f, pm.z);
+                go.transform.localPosition = new Vector3(pm.x, y - 0.01f, pm.z);
                 go.transform.localRotation = Quaternion.LookRotation(
                     new Vector3(dir.x, 0f, dir.z), Vector3.up);
 
                 var ps  = go.AddComponent<ParticleSystem>();
                 var mat = GetWaterMaterial();
                 if (mat != null) go.GetComponent<ParticleSystemRenderer>().material = mat;
-                SetupWaterParticles(ps, segLen, riverWidth);
+                // ローカル回転設定後に forward を取ると、タイル回転込みのワールド流れ方向になる
+                SetupWaterParticles(ps, segLen, riverWidth, go.transform.forward);
                 ps.Play();
             }
         }
@@ -707,7 +708,9 @@ namespace ElfVillage.Tiles
             return mt * mt * p0 + 2f * mt * t * p1 + t * t * p2;
         }
 
-        private static void SetupWaterParticles(ParticleSystem ps, float segLen, float riverWidth)
+        // worldFlowDir: ワールド座標での流れ方向ベクトル（タイル回転込み）。
+        // World 座標系を使うことで、タイルを何枚繋いでも回転に関わらず向きを一方向に固定できる。
+        private static void SetupWaterParticles(ParticleSystem ps, float segLen, float riverWidth, Vector3 worldFlowDir)
         {
             ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
 
@@ -725,23 +728,27 @@ namespace ElfVillage.Tiles
                 new Color(0.35f, 0.70f, 1.00f, 0.85f),
                 new Color(0.65f, 0.90f, 1.00f, 0.95f));
             main.gravityModifier = new ParticleSystem.MinMaxCurve(0f);
-            main.simulationSpace = ParticleSystemSimulationSpace.Local;
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
 
             var em = ps.emission;
             em.rateOverTime = 10f; // 4つ合計で 40/sec
 
-            // 担当区間（1/4の長さ）の川幅のBox
+            // 担当区間（1/4の長さ）の川幅のBox（ワールド座標系でも GO の向きに追従）
             var sh = ps.shape;
             sh.shapeType = ParticleSystemShapeType.Box;
             sh.scale     = new Vector3(riverWidth * 0.80f, 0.01f, segLen);
 
-            // ローカルZ方向（各エミッターの向き = 曲線接線方向）に流す
+            // ワールド座標系で流れ方向に速度を設定（min/max は符号を保って大小を正しく並べる）
+            float dx = worldFlowDir.x * flowSpeed;
+            float dz = worldFlowDir.z * flowSpeed;
             var vel = ps.velocityOverLifetime;
             vel.enabled = true;
-            vel.space   = ParticleSystemSimulationSpace.Local;
-            vel.x = new ParticleSystem.MinMaxCurve(-0.02f, 0.02f);
-            vel.y = new ParticleSystem.MinMaxCurve(0f, 0f);   // TwoConstants に統一（Constantとの混在不可）
-            vel.z = new ParticleSystem.MinMaxCurve(flowSpeed * 0.85f, flowSpeed * 1.15f);
+            vel.space   = ParticleSystemSimulationSpace.World;
+            vel.x = new ParticleSystem.MinMaxCurve(Mathf.Min(dx * 0.85f, dx * 1.15f),
+                                                    Mathf.Max(dx * 0.85f, dx * 1.15f));
+            vel.y = new ParticleSystem.MinMaxCurve(0f, 0f);
+            vel.z = new ParticleSystem.MinMaxCurve(Mathf.Min(dz * 0.85f, dz * 1.15f),
+                                                    Mathf.Max(dz * 0.85f, dz * 1.15f));
 
             var col = ps.colorOverLifetime;
             col.enabled = true;
@@ -834,6 +841,58 @@ namespace ElfVillage.Tiles
         }
 
         public bool IsEdgeConnected(int dir) => _connectedEdges[((dir % 6) + 6) % 6];
+
+        /// <summary>ローカル方向インデックスの辺中心をワールド座標で返す（タイル回転の影響を受ける）。</summary>
+        public Vector3 EdgeCenterWorld(int dir)
+            => transform.TransformPoint(EdgeCenter(dir, outerRadius * 0.866f));
+
+        /// <summary>
+        /// ワールド方向インデックス worldDir のエッジ中心をワールド座標で返す。
+        /// RiverFlowSystem の entry/exit（回転済み方向）と対応させるために使う。
+        /// タイルの回転に関係なく、常にグリッドの worldDir 方向の辺位置を返す。
+        /// </summary>
+        public Vector3 GetWorldDirEdgePos(int worldDir)
+        {
+            float angle    = s_DirToWorldAngle[((worldDir % 6) + 6) % 6] * Mathf.Deg2Rad;
+            float inRadius = outerRadius * 0.866f;
+            return transform.position + new Vector3(Mathf.Cos(angle) * inRadius, 0f, Mathf.Sin(angle) * inRadius);
+        }
+
+        /// <summary>最初の WaterPS のワールド forward を返す（= 現在の流れ方向）。</summary>
+        public Vector3 GetWaterFlowDir()
+        {
+            for (int i = 0; i < transform.childCount; i++)
+            {
+                var child = transform.GetChild(i);
+                if (child.name == "WaterPS") return child.forward;
+            }
+            return transform.forward;
+        }
+
+        /// <summary>
+        /// WaterPS の velocityOverLifetime を反転する。
+        /// 隣タイルと接続したとき RiverFlowSystem が向きを揃えるために呼ぶ。
+        /// </summary>
+        public void ReverseWaterFlow()
+        {
+            for (int i = 0; i < transform.childCount; i++)
+            {
+                var child = transform.GetChild(i);
+                if (child.name != "WaterPS") continue;
+                var ps = child.GetComponent<ParticleSystem>();
+                if (ps == null) continue;
+
+                var vel = ps.velocityOverLifetime;
+                float xMin = vel.x.constantMin, xMax = vel.x.constantMax;
+                float zMin = vel.z.constantMin, zMax = vel.z.constantMax;
+                // min/max を入れ替えて符号を反転
+                vel.x = new ParticleSystem.MinMaxCurve(-xMax, -xMin);
+                vel.z = new ParticleSystem.MinMaxCurve(-zMax, -zMin);
+
+                ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                ps.Play();
+            }
+        }
 
         public void SetRotation(int rotation)
         {

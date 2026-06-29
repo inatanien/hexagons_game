@@ -1,6 +1,6 @@
 // 役割: TerrainSynergyEvent を受け取り、森と川の境界に蛍のパーティクルを生成する。
 //       SynergyId ごとにエフェクトを管理し、クラスターが成長しても位置を更新する。
-//       蛍は境界エリアをふわふわ漂い、夜の森×川の雰囲気を演出する。
+//       TimeOfDayEvent を購読し、夜の時間帯のみ蛍を出現させる。
 
 using System.Collections.Generic;
 using UnityEngine;
@@ -16,14 +16,24 @@ namespace ElfVillage.Tiles
         // SynergyId ごとにエフェクトを1つ管理（クラスターが成長しても再生成しない）
         private readonly Dictionary<string, FireflyEffect> _activeEffects = new();
         private Material _mat;
+        private bool     _isNight = false;
 
         private void Awake()
         {
             _mat = BuildMaterial();
         }
 
-        private void OnEnable()  => EventBus.Subscribe<TerrainSynergyEvent>(OnSynergy);
-        private void OnDisable() => EventBus.Unsubscribe<TerrainSynergyEvent>(OnSynergy);
+        private void OnEnable()
+        {
+            EventBus.Subscribe<TerrainSynergyEvent>(OnSynergy);
+            EventBus.Subscribe<TimeOfDayEvent>(OnTimeOfDay);
+        }
+
+        private void OnDisable()
+        {
+            EventBus.Unsubscribe<TerrainSynergyEvent>(OnSynergy);
+            EventBus.Unsubscribe<TimeOfDayEvent>(OnTimeOfDay);
+        }
 
         private void OnDestroy()
         {
@@ -43,7 +53,22 @@ namespace ElfVillage.Tiles
             }
 
             effect.UpdateBounds(evt.TilesA, evt.TilesB);
-            effect.Play();
+
+            // 夜のみ再生。他の時間帯では待機させる
+            if (_isNight) effect.Play();
+        }
+
+        private void OnTimeOfDay(TimeOfDayEvent evt)
+        {
+            _isNight = evt.Current == TimeOfDayEvent.Phase.Night;
+
+            foreach (var effect in _activeEffects.Values)
+            {
+                if (_isNight)
+                    effect.Play();
+                else
+                    effect.Stop();  // 既存パーティクルはフェードアウトして自然消滅
+            }
         }
 
         // ── パーティクルエフェクト本体 ────────────────────────────────
@@ -90,8 +115,8 @@ namespace ElfVillage.Tiles
                 );
             }
 
-            internal void Play() { if (!_ps.isPlaying) _ps.Play(); }
-
+            internal void Play()  { if (!_ps.isPlaying) _ps.Play(); }
+            internal void Stop()  => _ps.Stop(true, ParticleSystemStopBehavior.StopEmitting);
             internal void Destroy() { if (_go != null) Object.Destroy(_go); }
 
             private void Setup()

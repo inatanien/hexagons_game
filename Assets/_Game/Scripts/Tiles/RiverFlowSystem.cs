@@ -46,13 +46,7 @@ namespace ElfVillage.Tiles
                 _coordMap[evt.Coord] = evt.Tile;
             }
 
-            if (!state.IsFlowing)
-            {
-                // 接続なし → WaterPS を止めて滞留 PS を表示
-                ControlTileWaterPS(evt.Tile, play: false);
-                // タイル天面 (tileHeight≒0.15f) より上に配置する
-                state.StagnantPS = CreateStagnantPS(evt.Tile.transform.position + Vector3.up * 0.22f);
-            }
+            // 孤立タイルも WaterPS をそのまま再生（置いた瞬間から流れる）
         }
 
         // ─── 川×川接続 → 流れの確立・伝播 ──────────────────────────────────
@@ -117,10 +111,16 @@ namespace ElfVillage.Tiles
             s.EntryDir  = entry;
             s.ExitDir   = exit;
             s.IsFlowing = true;
-            // 滞留 PS を破棄
             if (s.StagnantPS != null) { Object.Destroy(s.StagnantPS.gameObject); s.StagnantPS = null; }
-            // HexTile の WaterPS を再開（停止していた場合も、これから止める予定の場合も共に有効化）
-            ControlTileWaterPS(tile, play: true);
+
+            // entry/exit はワールド方向インデックス（タイル回転済み）なので
+            // GetWorldDirEdgePos を使ってワールド空間での正しい辺位置を取得する
+            if (entry >= 0 && exit >= 0)
+            {
+                Vector3 intended = (tile.GetWorldDirEdgePos(exit) - tile.GetWorldDirEdgePos(entry)).normalized;
+                if (Vector3.Dot(intended, tile.GetWaterFlowDir()) < 0f)
+                    tile.ReverseWaterFlow();
+            }
         }
 
         // ─── 流れの連鎖伝播 ────────────────────────────────────────────────

@@ -115,10 +115,21 @@ namespace ElfVillage.Tiles
                     cluster.Wind = new ForestBreathEffect(
                         evt.TerrainType.tileColor, isWind: true, transform, _cachedParticleMat);
                 cluster.Wind.UpdateBounds(evt.AffectedTiles);
+                cluster.Wind.SetWindStrength(CalcWindStrength(size));
 
                 if (cluster.WindCoroutine == null)
                     cluster.WindCoroutine = StartCoroutine(WindCycle(cluster.Wind));
             }
+        }
+
+        // 枚数 → 強度 0〜1（5枚=20%, 8枚=40%, 15枚=60%, 30枚=100%）
+        private static float CalcWindStrength(int size)
+        {
+            if (size <  5)  return 0f;
+            if (size <  8)  return Mathf.Lerp(0.20f, 0.40f, (size -  5f) /  3f);
+            if (size < 15)  return Mathf.Lerp(0.40f, 0.60f, (size -  8f) /  7f);
+            if (size < 30)  return Mathf.Lerp(0.60f, 1.00f, (size - 15f) / 15f);
+            return 1.0f;
         }
 
         // 待機 → そよ風 → 止む → 繰り返し
@@ -202,6 +213,23 @@ namespace ElfVillage.Tiles
                 shape.scale = new Vector3(extent.x + 1.0f, 0.3f, extent.z + 1.0f);
             }
 
+            // 風強度 t（0〜1）で速度・重力・放出レートをスケールする
+            // Setup の 100% 値を基準として乗算する
+            internal void SetWindStrength(float t)
+            {
+                t = Mathf.Clamp01(t);
+
+                var vel = _ps.velocityOverLifetime;
+                vel.x = new ParticleSystem.MinMaxCurve(1.8f * t, 3.5f * t);
+                vel.z = new ParticleSystem.MinMaxCurve(-0.9f * t, 0.9f * t);
+
+                var main = _ps.main;
+                main.gravityModifier = new ParticleSystem.MinMaxCurve(0.07f * t);
+
+                var em = _ps.emission;
+                em.rateOverTime = 16f * t;
+            }
+
             internal void Play() { if (!_ps.isPlaying) _ps.Play(); }
 
             // StopEmitting → 既存パーティクルは落下させて自然消滅
@@ -226,11 +254,11 @@ namespace ElfVillage.Tiles
                 main.startRotation   = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
                 main.startColor      = LeafColorGradient(tileColor);
                 // 穏やかは velocityOverLifetime で下方向を明示するので重力は 0
-                main.gravityModifier = new ParticleSystem.MinMaxCurve(isWind ? 0.03f : 0f);
+                main.gravityModifier = new ParticleSystem.MinMaxCurve(isWind ? 0.07f : 0f);
                 main.simulationSpace = ParticleSystemSimulationSpace.World;
 
                 var em = _ps.emission;
-                em.rateOverTime = isWind ? 12f : 3f;
+                em.rateOverTime = isWind ? 16f : 3f;
 
                 var sh = _ps.shape;
                 sh.shapeType             = ParticleSystemShapeType.Box;
@@ -245,9 +273,9 @@ namespace ElfVillage.Tiles
                 if (isWind)
                 {
                     // 一方向に強く流れる（横風）、Y は重力に任せる
-                    vel.x = new ParticleSystem.MinMaxCurve(1.0f, 2.5f);
+                    vel.x = new ParticleSystem.MinMaxCurve(1.8f, 3.5f);
                     vel.y = new ParticleSystem.MinMaxCurve(0.0f, 0.0f);
-                    vel.z = new ParticleSystem.MinMaxCurve(-0.6f, 0.6f);
+                    vel.z = new ParticleSystem.MinMaxCurve(-0.9f, 0.9f);
                 }
                 else
                 {
