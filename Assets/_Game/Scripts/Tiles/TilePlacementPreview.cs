@@ -27,7 +27,7 @@ namespace ElfVillage.Tiles
             _previewGO = new GameObject("TilePlacementPreview_GO");
 
             var mf = _previewGO.AddComponent<MeshFilter>();
-            mf.sharedMesh = HexMeshBuilder.Build(0.95f, 0.15f);
+            mf.sharedMesh = HexMeshBuilder.Build(2.0f, 0.30f);
 
             _previewRenderer = _previewGO.AddComponent<MeshRenderer>();
             _previewRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
@@ -44,8 +44,8 @@ namespace ElfVillage.Tiles
             // 回転インジケーター（edge0方向を示す白い球）
             var marker = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             marker.transform.SetParent(_previewGO.transform);
-            marker.transform.localPosition = new Vector3(0.62f, 0.17f, 0f);
-            marker.transform.localScale    = new Vector3(0.22f, 0.22f, 0.22f);
+            marker.transform.localPosition = new Vector3(1.13f, 0.25f, 0f);
+            marker.transform.localScale    = new Vector3(0.40f, 0.40f, 0.40f);
             Destroy(marker.GetComponent<Collider>());
             _previewMarkerMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
             _previewMarkerMat.SetColor("_BaseColor", Color.white);
@@ -57,10 +57,6 @@ namespace ElfVillage.Tiles
             _previewGO.SetActive(false);
         }
 
-        /// <summary>
-        /// ホバー中タイルの状態を受け取り、プレビューを更新する。
-        /// 毎フレーム HandleHover から呼ばれることを前提とする。
-        /// </summary>
         public void UpdatePreview(HexTile hoveredTile, bool canPlace, TileType tileType, int rotation)
         {
             if (_previewGO == null) return;

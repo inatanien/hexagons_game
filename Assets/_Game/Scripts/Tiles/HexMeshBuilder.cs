@@ -12,7 +12,7 @@ namespace ElfVillage.Tiles
         /// </summary>
         /// <param name="outerRadius">外接円半径（頂点-中心距離）</param>
         /// <param name="height">柱の高さ</param>
-        public static Mesh Build(float outerRadius = 0.95f, float height = 0.15f)
+        public static Mesh Build(float outerRadius = 2.0f, float height = 0.30f)
         {
             var mesh = new Mesh { name = "HexTile" };
 
@@ -70,21 +70,21 @@ namespace ElfVillage.Tiles
                 tris[t++] = 8 + (i + 1) % 6;
             }
 
-            // 側面（各辺2三角形）
+            // 側面（各辺2三角形）― 外向き法線になるよう時計回りで指定
             for (int i = 0; i < 6; i++)
             {
-                int cur  = 14 + i;
-                int next = 14 + (i + 1) % 6;
+                int cur   = 14 + i;
+                int next  = 14 + (i + 1) % 6;
                 int curB  = 20 + i;
                 int nextB = 20 + (i + 1) % 6;
 
                 tris[t++] = cur;
-                tris[t++] = curB;
                 tris[t++] = next;
+                tris[t++] = curB;
 
                 tris[t++] = next;
-                tris[t++] = curB;
                 tris[t++] = nextB;
+                tris[t++] = curB;
             }
 
             mesh.vertices  = verts;

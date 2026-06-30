@@ -1,7 +1,7 @@
 // 役割: 朝・昼・夕方・夜の時間サイクルを管理する。
 //       各時間帯の滞在後に transitionDuration 秒かけて徐々に次の時間帯へ遷移する。
 //       DirectionalLight・環境光・霧の色を Lerp で滑らかに切り替える。
-//       将来の HDRI スカイボックス差し替えに備え、時間帯ごとの設定は SerializeField で公開している。
+//       スカイボックスは Custom/SkyboxBlend シェーダーで 2 テクスチャをクロスフェードする。
 
 using System.Collections;
 using UnityEngine;
@@ -16,6 +16,12 @@ namespace ElfVillage.Core
 
         [Header("ライト")]
         [SerializeField] private Light _sun;
+
+        [Header("スカイボックス（時間帯ごとのマテリアル）")]
+        [SerializeField] private Material _morningSkybox;
+        [SerializeField] private Material _afternoonSkybox;
+        [SerializeField] private Material _eveningSkybox;
+        [SerializeField] private Material _nightSkybox;
 
         // ── 各時間帯の設定 ──────────────────────────────────────────────
 
@@ -66,13 +72,46 @@ namespace ElfVillage.Core
 
         private TimeOfDayEvent.Phase _currentPhase = TimeOfDayEvent.Phase.Morning;
 
+        // ランタイムで生成するブレンド用マテリアル（シーンには保存しない）
+        private Material _blendMat;
+
         private void Start()
         {
             if (_sun == null)
                 _sun = FindFirstObjectByType<Light>();
 
+            InitBlendSkybox();
             ApplyImmediate(_morning);
             StartCoroutine(CycleRoutine());
+        }
+
+        private void OnDestroy()
+        {
+            if (_blendMat != null) Destroy(_blendMat);
+        }
+
+        // ── スカイボックス初期化 ──────────────────────────────────────
+
+        private void InitBlendSkybox()
+        {
+            var shader = Shader.Find("Custom/SkyboxBlend");
+            if (shader == null)
+            {
+                // シェーダーが見つからない場合は直接スワップにフォールバック
+                ApplySkyboxDirect(TimeOfDayEvent.Phase.Morning);
+                return;
+            }
+
+            _blendMat      = new Material(shader) { name = "SkyboxBlend_Runtime" };
+            _blendMat.SetFloat("_Exposure", 1f);
+            _blendMat.SetFloat("_Rotation", 0f);
+
+            var tex = GetSkyboxTexture(TimeOfDayEvent.Phase.Morning);
+            _blendMat.SetTexture("_MainTex",   tex);
+            _blendMat.SetTexture("_SecondTex", tex);
+            _blendMat.SetFloat("_Blend", 0f);
+
+            RenderSettings.skybox = _blendMat;
         }
 
         // ── メインサイクル ────────────────────────────────────────────
@@ -83,7 +122,7 @@ namespace ElfVillage.Core
             {
                 yield return new WaitForSeconds(_stayDuration);
                 var next = NextPhase(_currentPhase);
-                yield return StartCoroutine(TransitionTo(GetSettings(next)));
+                yield return StartCoroutine(TransitionTo(GetSettings(next), next));
                 _currentPhase = next;
                 EventBus.Publish(new TimeOfDayEvent(_currentPhase));
             }
@@ -91,20 +130,42 @@ namespace ElfVillage.Core
 
         // ── 遷移コルーチン ────────────────────────────────────────────
 
-        private IEnumerator TransitionTo(TimeSettings to)
+        private IEnumerator TransitionTo(TimeSettings to, TimeOfDayEvent.Phase targetPhase)
         {
             var   from    = GetCurrentLiveSettings();
             float elapsed = 0f;
+
+            // ブレンドシェーダーがある場合：遷移中に 2 テクスチャをクロスフェード
+            if (_blendMat != null)
+            {
+                _blendMat.SetTexture("_MainTex",   GetSkyboxTexture(_currentPhase));
+                _blendMat.SetTexture("_SecondTex", GetSkyboxTexture(targetPhase));
+                _blendMat.SetFloat("_Blend", 0f);
+            }
 
             while (elapsed < _transitionDuration)
             {
                 elapsed += Time.deltaTime;
                 float t  = Mathf.SmoothStep(0f, 1f, elapsed / _transitionDuration);
                 ApplyLerp(from, to, t);
+                if (_blendMat != null) _blendMat.SetFloat("_Blend", t);
                 yield return null;
             }
 
             ApplyImmediate(to);
+
+            // 遷移完了後：_MainTex を新しいテクスチャに更新してブレンドリセット
+            if (_blendMat != null)
+            {
+                var tex = GetSkyboxTexture(targetPhase);
+                _blendMat.SetTexture("_MainTex",   tex);
+                _blendMat.SetTexture("_SecondTex", tex);
+                _blendMat.SetFloat("_Blend", 0f);
+            }
+            else
+            {
+                ApplySkyboxDirect(targetPhase);
+            }
         }
 
         // ── 設定適用 ─────────────────────────────────────────────────
@@ -131,6 +192,32 @@ namespace ElfVillage.Core
             }
         }
 
+        // ブレンドシェーダーが使えない場合の直接スワップ（フォールバック）
+        private void ApplySkyboxDirect(TimeOfDayEvent.Phase phase)
+        {
+            var mat = GetSkyboxMaterial(phase);
+            if (mat != null) RenderSettings.skybox = mat;
+        }
+
+        // ── ヘルパー ────────────────────────────────────────────────
+
+        private Texture GetSkyboxTexture(TimeOfDayEvent.Phase phase)
+        {
+            var mat = GetSkyboxMaterial(phase);
+            return mat != null ? mat.GetTexture("_MainTex") : null;
+        }
+
+        private Material GetSkyboxMaterial(TimeOfDayEvent.Phase phase)
+        {
+            switch (phase)
+            {
+                case TimeOfDayEvent.Phase.Morning:   return _morningSkybox;
+                case TimeOfDayEvent.Phase.Afternoon: return _afternoonSkybox;
+                case TimeOfDayEvent.Phase.Evening:   return _eveningSkybox;
+                default:                             return _nightSkybox;
+            }
+        }
+
         private TimeSettings GetCurrentLiveSettings()
         {
             return new TimeSettings
@@ -141,8 +228,6 @@ namespace ElfVillage.Core
                 fogColor       = RenderSettings.fogColor,
             };
         }
-
-        // ── ヘルパー ────────────────────────────────────────────────
 
         private TimeSettings GetSettings(TimeOfDayEvent.Phase phase)
         {

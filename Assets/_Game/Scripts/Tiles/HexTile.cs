@@ -16,8 +16,8 @@ namespace ElfVillage.Tiles
         [SerializeField] private MeshCollider meshCollider;
 
         [Header("メッシュ設定")]
-        [SerializeField] private float outerRadius = 0.95f;
-        [SerializeField] private float tileHeight  = 0.15f;
+        [SerializeField] private float outerRadius = 2.0f;
+        [SerializeField] private float tileHeight  = 0.30f;
 
         [Header("配置アニメーション")]
         [SerializeField] private AnimationCurve placementCurve = new AnimationCurve(
@@ -36,7 +36,10 @@ namespace ElfVillage.Tiles
         // 接続状態（6方向・同種タイルと隣接しているか）
         private readonly bool[] _connectedEdges = new bool[6];
 
-        // TileConnectionFX が自己初期化するために参照する
+        // 空き枠ワイヤーフレーム
+        private GameObject _wireRoot;
+        private Material   _wireMat;
+
         public float OuterRadius => outerRadius;
         public float TileHeight  => tileHeight;
 
@@ -49,8 +52,57 @@ namespace ElfVillage.Tiles
             if (meshFilter   != null) meshFilter.sharedMesh   = mesh;
             if (meshCollider != null) meshCollider.sharedMesh  = mesh;
 
-            // TileConnectionFX は Awake 内で GetComponent<HexTile>() を使って自己初期化する
-            gameObject.AddComponent<TileConnectionFX>();
+            BuildAvailableWire();
+        }
+
+        private void OnDestroy()
+        {
+            if (_wireMat != null) Destroy(_wireMat);
+        }
+
+        private void BuildAvailableWire()
+        {
+            _wireMat = new Material(Shader.Find("Universal Render Pipeline/Unlit"))
+                { name = "AvailWire" };
+            _wireMat.color = Color.white;
+
+            _wireRoot = new GameObject("AvailableWire");
+            _wireRoot.transform.SetParent(transform);
+            _wireRoot.transform.localPosition = Vector3.zero;
+            _wireRoot.transform.localRotation = Quaternion.identity;
+
+            float topY = tileHeight * 0.5f + 0.008f;
+            var topVerts = new Vector3[6];
+            for (int i = 0; i < 6; i++)
+            {
+                float a = Mathf.Deg2Rad * (60f * i);
+                topVerts[i] = new Vector3(outerRadius * Mathf.Cos(a), topY, outerRadius * Mathf.Sin(a));
+            }
+
+            AddWireLine(topVerts, loop: true,  width: 0.06f);
+            for (int i = 0; i < 6; i++)
+                AddWireLine(new[] { topVerts[i], new Vector3(topVerts[i].x, -tileHeight * 0.5f, topVerts[i].z) },
+                            loop: false, width: 0.035f);
+
+            _wireRoot.SetActive(false);
+        }
+
+        private void AddWireLine(Vector3[] positions, bool loop, float width)
+        {
+            var go = new GameObject("WL");
+            go.transform.SetParent(_wireRoot.transform);
+            go.transform.localPosition = Vector3.zero;
+            var lr = go.AddComponent<LineRenderer>();
+            lr.material          = _wireMat;
+            lr.startWidth        = width;
+            lr.endWidth          = width;
+            lr.loop              = loop;
+            lr.useWorldSpace     = false;
+            lr.numCapVertices    = 4;
+            lr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            lr.receiveShadows    = false;
+            lr.positionCount     = positions.Length;
+            lr.SetPositions(positions);
         }
 
         public TileData Data { get; private set; }
@@ -80,6 +132,7 @@ namespace ElfVillage.Tiles
             IsPlaced = true;
             // 配置済みタイルはクリック対象から除外（コライダー無効 → 左クリックでカメラパン可能になる）
             if (meshCollider != null) meshCollider.enabled = false;
+            if (_wireRoot    != null) _wireRoot.SetActive(false);
             ApplyVisual();
             SpawnPropsFor(tileType, transform);
             StartCoroutine(PlacementAnim());
@@ -117,7 +170,7 @@ namespace ElfVillage.Tiles
         /// Water は川岸ラインのみ表示（パーティクルは省略）。
         /// </summary>
         public static void SpawnPropsPreview(TileType type, Transform parent,
-                                              float outerRadius = 0.95f, float tileHeight = 0.15f)
+                                              float outerRadius = 2.0f, float tileHeight = 0.30f)
         {
             if (type == null) return;
             switch (type.propType)
@@ -306,7 +359,7 @@ namespace ElfVillage.Tiles
 
         /// <summary>プレビューなど HexTile 外からも呼べる静的版。</summary>
         public static void SpawnDividersFor(TileType type, Transform parent,
-                                            float outerRadius = 0.95f, float tileHeight = 0.15f)
+                                            float outerRadius = 2.0f, float tileHeight = 0.30f)
         {
             if (type == null) return;
             float y = tileHeight + 0.018f;
@@ -346,62 +399,13 @@ namespace ElfVillage.Tiles
                     break;
 
                 case TileDividerType.VerticalPair:
-                {
-                    // 上辺(A-B)・下辺(E-D)をそれぞれ3等分した分割点同士を結ぶ2本縦線
-                    // 分割点 X = ±R/6 (3等分なので辺長R の 1/6 ずつオフセット)
-                    // 線の長さ = 上辺Z から下辺Z = 2 × inRadius = R√3
-                    float inRadius2 = R * 0.866f;
-                    float xOff      = R / 6f;
-                    float lineLen   = inRadius2 * 2f;
-                    var   riverCol  = new Color(0.18f, 0.52f, 0.92f);
-                    SpawnLine(parent, new Vector3(-xOff, y, 0f), Quaternion.identity,
-                              new Vector3(0.07f, 0.03f, lineLen), riverCol);
-                    SpawnLine(parent, new Vector3( xOff, y, 0f), Quaternion.identity,
-                              new Vector3(0.07f, 0.03f, lineLen), riverCol);
                     break;
-                }
 
                 case TileDividerType.BendPairWide:
-                {
-                    // dir0(右辺)→dir4(左上辺) の緩やかカーブ用。下向きアーチ2本。
-                    // SpawnWater の bezier(中心通過・下方) と水パーティクルが整合する設計
-                    float inRW = R * 0.866f;
-                    var   colW = new Color(0.18f, 0.52f, 0.92f);
-                    // Inner bank (下寄り): (5R/6, inR/3) → 底(0, inR/6) → (-5R/6, inR/3)
-                    SpawnBankSegment(parent, new Vector3(5f*R/6f, 0f, inRW/3f),
-                                             new Vector3(0f, 0f, inRW/6f), y, 0.07f, colW);
-                    SpawnBankSegment(parent, new Vector3(0f, 0f, inRW/6f),
-                                             new Vector3(-5f*R/6f, 0f, inRW/3f), y, 0.07f, colW);
-                    // Outer bank (上寄り): (2R/3, 2inR/3) → 底(0, inR/2) → (-2R/3, 2inR/3)
-                    SpawnBankSegment(parent, new Vector3(2f*R/3f, 0f, 2f*inRW/3f),
-                                             new Vector3(0f, 0f, inRW/2f), y, 0.07f, colW);
-                    SpawnBankSegment(parent, new Vector3(0f, 0f, inRW/2f),
-                                             new Vector3(-2f*R/3f, 0f, 2f*inRW/3f), y, 0.07f, colW);
                     break;
-                }
 
                 case TileDividerType.BendPair:
-                {
-                    // dir0辺(右)→dir5辺(上) の3等分点を結ぶL字折れ線2本（川曲がりタイル用）
-                    // Inner: V1(右上頂点)寄り。 Outer: V1から遠い側。
-                    // 各折れ線は 水平セグメント + 垂直セグメント の2本で構成
-                    float inR      = R * 0.866f;
-                    var   col      = new Color(0.18f, 0.52f, 0.92f);
-                    var   horizRot = Quaternion.LookRotation(Vector3.right, Vector3.up);
-
-                    // Inner bank: (2R/3, 2inR/3) → corner(R/6, 2inR/3) → (R/6, inR)
-                    SpawnLine(parent, new Vector3(5f * R / 12f, y, 2f * inR / 3f),
-                              horizRot, new Vector3(0.07f, 0.03f, R / 2f), col);
-                    SpawnLine(parent, new Vector3(R / 6f, y, 5f * inR / 6f),
-                              Quaternion.identity, new Vector3(0.07f, 0.03f, inR / 3f), col);
-
-                    // Outer bank: (5R/6, inR/3) → corner(-R/6, inR/3) → (-R/6, inR)
-                    SpawnLine(parent, new Vector3(R / 3f, y, inR / 3f),
-                              horizRot, new Vector3(0.07f, 0.03f, R), col);
-                    SpawnLine(parent, new Vector3(-R / 6f, y, 2f * inR / 3f),
-                              Quaternion.identity, new Vector3(0.07f, 0.03f, 2f * inR / 3f), col);
                     break;
-                }
             }
         }
 
@@ -596,7 +600,7 @@ namespace ElfVillage.Tiles
         {
             float riverWidth = outerRadius * 0.5f;
             float bankOffset = riverWidth * 0.5f;
-            float y          = tileHeight + 0.01f;
+            float y          = tileHeight * 0.5f + 0.01f;
 
             // 2辺の中点がタイル中心に近い = 対向辺 = 直線。それ以外はタイル中心を制御点とするベジェ曲線
             bool    isStraight = ((edgeA + edgeB) * 0.5f).sqrMagnitude < 0.01f;
@@ -920,27 +924,14 @@ namespace ElfVillage.Tiles
             _isAvailable = available;
             if (IsPlaced) return;
 
-            if (tileRenderer != null) tileRenderer.enabled = available;
+            // 空き枠はワイヤーフレームで表示（solid mesh は非表示）
+            if (tileRenderer != null) tileRenderer.enabled = false;
             if (meshCollider != null) meshCollider.enabled = available;
+            if (_wireRoot    != null) _wireRoot.SetActive(available);
 
-            if (available)
-            {
-                if (_worldType != null)
-                {
-                    // 世界タイプの色でそのまま表示（タイルを「発見」する感覚を演出）
-                    tileRenderer.material.color = _worldType.tileColor;
-                    SpawnWorldProps();
-                }
-                else
-                {
-                    tileRenderer.material.color = GetAvailableColor();
-                }
-            }
+            if (available && _worldType != null)
+                SpawnWorldProps();
         }
-
-        // 「置けるマス」の常時ハイライト色（淡い緑）
-        private Color GetAvailableColor() =>
-            Color.Lerp(_defaultColor, new Color(0.55f, 0.95f, 0.55f), 0.28f);
 
         public void Highlight(bool on, bool placeable = true)
         {
@@ -948,7 +939,7 @@ namespace ElfVillage.Tiles
             // このタイルが本来持つべき色（配置済み→タイル色、未配置→世界タイプ色）
             Color baseColor = Data.tileType != null ? Data.tileType.tileColor
                             : _worldType   != null ? _worldType.tileColor
-                            : GetAvailableColor();
+                            : _defaultColor;
 
             if (!on || placeable)
             {

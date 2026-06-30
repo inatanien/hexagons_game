@@ -909,6 +909,8 @@ GameObject:
   - component: {fileID: 1015676112}
   - component: {fileID: 1015676115}
   - component: {fileID: 1015676114}
+  - component: {fileID: 1015676117}
+  - component: {fileID: 1015676116}
   m_Layer: 0
   m_Name: WorldBreath
   m_TagString: Untagged
@@ -1096,6 +1098,40 @@ MonoBehaviour:
   _flowerTileTypes:
   - {fileID: 11400000, guid: 3182f2efabe78e4419dc8f286e182eaa, type: 2}
   _threshold: 3
+--- !u!114 &1015676116
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1015676104}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 20241b861378cb745a1776f531f42daa, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _targetSynergyId: ForestFlower
+--- !u!114 &1015676117
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1015676104}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7bedbf13714237f44a083befa313a79a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _gridManager: {fileID: 1774834703}
+  _synergyId: ForestFlower
+  _typesA:
+  - {fileID: 11400000, guid: e3fc723b1d653774299fd4efd81b82a1, type: 2}
+  - {fileID: 11400000, guid: b54592cc893b3cb44bae704dd5e88198, type: 2}
+  _minCountA: 8
+  _typesB:
+  - {fileID: 11400000, guid: 3182f2efabe78e4419dc8f286e182eaa, type: 2}
+  _minCountB: 8
 --- !u!1 &1034581677
 GameObject:
   m_ObjectHideFlags: 0
@@ -1791,6 +1827,10 @@ MonoBehaviour:
   _stayDuration: 10
   _transitionDuration: 3
   _sun: {fileID: 410087040}
+  _morningSkybox: {fileID: 2100000, guid: d0a87a5fbcc994c4f9f51d78bc8c3cb9, type: 2}
+  _afternoonSkybox: {fileID: 2100000, guid: f19fd6672a5a14a479c2d136e38812eb, type: 2}
+  _eveningSkybox: {fileID: 2100000, guid: a6e735068255ec249a841b0e7e2f5867, type: 2}
+  _nightSkybox: {fileID: 2100000, guid: 473b620c05a91964fa70dc608314f2b9, type: 2}
   _morning:
     ambientColor: {r: 0.85, g: 0.62, b: 0.38, a: 1}
     lightColor: {r: 1, g: 0.78, b: 0.45, a: 1}

@@ -46,7 +46,9 @@ namespace ElfVillage.Tiles
                 _coordMap[evt.Coord] = evt.Tile;
             }
 
-            // 孤立タイルも WaterPS をそのまま再生（置いた瞬間から流れる）
+            // 他の川タイルと未接続なら水流を止める（Activate で再開）
+            if (!state.IsFlowing)
+                ControlTileWaterPS(evt.Tile, false);
         }
 
         // ─── 川×川接続 → 流れの確立・伝播 ──────────────────────────────────
@@ -121,6 +123,9 @@ namespace ElfVillage.Tiles
                 if (Vector3.Dot(intended, tile.GetWaterFlowDir()) < 0f)
                     tile.ReverseWaterFlow();
             }
+
+            // 接続が確立したので水流を開始
+            ControlTileWaterPS(tile, true);
         }
 
         // ─── 流れの連鎖伝播 ────────────────────────────────────────────────

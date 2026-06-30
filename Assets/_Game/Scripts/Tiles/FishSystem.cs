@@ -224,7 +224,7 @@ namespace ElfVillage.Tiles
                 {
                     _waterPoints.Add(new WaterPoint
                     {
-                        Position    = t.transform.position + Vector3.up * 0.15f,
+                        Position    = t.transform.position + Vector3.up * 0.30f,
                         FlowForward = t.transform.forward
                     });
                 }
