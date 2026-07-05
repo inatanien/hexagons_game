@@ -36,6 +36,10 @@ namespace ElfVillage.Tiles
         // 接続状態（6方向・同種タイルと隣接しているか）
         private readonly bool[] _connectedEdges = new bool[6];
 
+        // 川エッジの開放状態（6方向・その方向の辺自体がEdgeType.River同士で一致しているか）
+        // タイル同士の同カテゴリ接続(_connectedEdges)とは別に、辺の種別そのもので判定する
+        private readonly bool[] _riverEdgeOpen = new bool[6];
+
         // 空き枠ワイヤーフレーム
         private GameObject _wireRoot;
         private Material   _wireMat;
@@ -133,9 +137,85 @@ namespace ElfVillage.Tiles
             // 配置済みタイルはクリック対象から除外（コライダー無効 → 左クリックでカメラパン可能になる）
             if (meshCollider != null) meshCollider.enabled = false;
             if (_wireRoot    != null) _wireRoot.SetActive(false);
+            ApplyRiverChannelMesh(tileType);
             ApplyVisual();
             SpawnPropsFor(tileType, transform);
             StartCoroutine(PlacementAnim());
+        }
+
+        // ── 川タイル専用メッシュ ─────────────────────────────────────────
+
+        /// <summary>
+        /// 接続状態が変わった後（同種の川タイルが隣接配置された後）に呼び、
+        /// 接続した端が陸地の高さへ戻らず溝底のまま隣タイルへ繋がるようにメッシュを再生成する。
+        /// </summary>
+        public void RefreshRiverChannelMesh()
+        {
+            if (Data.tileType != null) ApplyRiverChannelMesh(Data.tileType);
+        }
+
+        /// <summary>川タイル（propType==Water）の場合、天面に流路の溝を彫り込んだメッシュへ差し替える。</summary>
+        private void ApplyRiverChannelMesh(TileType tileType)
+        {
+            if (tileType == null || tileType.propType != TilePropType.Water) return;
+
+            ComputeRiverEdgeIndices(tileType, out int edgeAIdx, out int edgeBIdx);
+            float inRadius = outerRadius * 0.866f;
+            Vector3 posA = EdgeCenter(edgeAIdx, inRadius);
+            Vector3 posB = EdgeCenter(edgeBIdx, inRadius);
+
+            bool    isStraight = ((posA + posB) * 0.5f).sqrMagnitude < 0.01f;
+            Vector3 ctrl       = isStraight ? (posA + posB) * 0.5f : Vector3.zero;
+
+            // その辺自体がEdgeType.River同士で一致している場合のみ、陸地の高さへ戻さず溝底のまま繋げる
+            // （タイル同士のカテゴリ一致ではなく、辺の種別そのものによる判定）
+            bool openA = IsRiverEdgeOpen((edgeAIdx + Data.rotation) % 6);
+            bool openB = IsRiverEdgeOpen((edgeBIdx + Data.rotation) % 6);
+
+            Mesh channelMesh = RiverChannelMeshBuilder.Build(outerRadius, tileHeight, posA, posB, ctrl,
+                                                              openA, openB);
+            if (meshFilter   != null) meshFilter.sharedMesh   = channelMesh;
+            if (meshCollider != null) meshCollider.sharedMesh = channelMesh;
+
+            // 陰影だけでは溝が視認しにくいため、水路サブメッシュには専用の暗い水色マテリアルを使う。
+            // スロット0（陸地）はこの後 ApplyVisual() が tileColor で着色するので、ここでは触らない。
+            if (meshRenderer != null && channelMesh.subMeshCount > 1)
+            {
+                var channelMat = new Material(meshRenderer.sharedMaterial) { name = "RiverChannel_Runtime" };
+                Color c = tileType.tileColor;
+                channelMat.color = new Color(c.r * 0.5f, c.g * 0.55f, c.b * 0.75f, c.a);
+                meshRenderer.materials = new[] { meshRenderer.material, channelMat };
+            }
+        }
+
+        // SpawnWater と同じ辺選択ロジック（辺インデックスのみを取り出す版）
+        private void ComputeRiverEdgeIndices(TileType type, out int edgeA, out int edgeB)
+        {
+            var riverEdges    = new List<int>();
+            var fallbackEdges = new List<int>();
+            for (int d = 0; d < 6; d++)
+            {
+                var e = type.GetEdge(d);
+                if (e == EdgeType.River) riverEdges.Add(d);
+                else if (e != EdgeType.None && e != EdgeType.Field && e != EdgeType.Forest)
+                    fallbackEdges.Add(d);
+            }
+
+            var src = riverEdges.Count >= 2 ? riverEdges
+                    : fallbackEdges.Count >= 2 ? fallbackEdges
+                    : null;
+
+            if (src != null)
+            {
+                edgeA = src[0];
+                edgeB = src[1];
+            }
+            else
+            {
+                int h = Mathf.Abs(Data.coord.q * 31 + Data.coord.r * 17 + Data.coord.s * 7);
+                edgeA = h % 6;
+                edgeB = (edgeA + 1 + (h / 6) % 5) % 6;
+            }
         }
 
         // ── プロップ生成（プレイヤー配置・世界生成共通）──────────────────────
@@ -690,9 +770,11 @@ namespace ElfVillage.Tiles
                 var   dir = (QuadBezier(edgeA, ctrl, edgeB, t1)
                            - QuadBezier(edgeA, ctrl, edgeB, t0)).normalized;
 
+                float floorY = RiverChannelMeshBuilder.CenterlineHeight(tm, tileHeight);
+
                 var go = new GameObject("WaterPS");
                 go.transform.SetParent(parent);
-                go.transform.localPosition = new Vector3(pm.x, y - 0.01f, pm.z);
+                go.transform.localPosition = new Vector3(pm.x, floorY, pm.z);
                 go.transform.localRotation = Quaternion.LookRotation(
                     new Vector3(dir.x, 0f, dir.z), Vector3.up);
 
@@ -723,19 +805,30 @@ namespace ElfVillage.Tiles
             var main = ps.main;
             main.loop            = true;
             main.duration        = 3f;
-            main.maxParticles    = 25; // 4つのPSで合計100
+            main.maxParticles    = 17; // 4つのPSで合計68
             main.startLifetime   = new ParticleSystem.MinMaxCurve(
                 segLen / flowSpeed * 0.85f, segLen / flowSpeed * 1.15f);
             main.startSpeed      = new ParticleSystem.MinMaxCurve(0f);
-            main.startSize       = new ParticleSystem.MinMaxCurve(0.05f, 0.11f);
+            // 粒1つ1つを流れ方向に横長な楕円にする（X=長辺、Y=短辺。Z軸は使わない）
+            main.startSize3D     = true;
+            main.startSizeX      = new ParticleSystem.MinMaxCurve(0.14f, 0.24f);
+            main.startSizeY      = new ParticleSystem.MinMaxCurve(0.05f, 0.09f);
+            main.startSizeZ      = new ParticleSystem.MinMaxCurve(1f);
             main.startColor      = new ParticleSystem.MinMaxGradient(
                 new Color(0.35f, 0.70f, 1.00f, 0.85f),
                 new Color(0.65f, 0.90f, 1.00f, 0.95f));
             main.gravityModifier = new ParticleSystem.MinMaxCurve(0f);
             main.simulationSpace = ParticleSystemSimulationSpace.World;
 
+            // 常にカメラの向きに関係なく水面に寝かせる（Billboardだと立って見えてしまうため）。
+            // 回転は流れ方向に合わせて、横長な向きが流れと揃うようにする。
+            var renderer = ps.GetComponent<ParticleSystemRenderer>();
+            renderer.renderMode = ParticleSystemRenderMode.HorizontalBillboard;
+            float flowAngle = Mathf.Atan2(worldFlowDir.z, worldFlowDir.x);
+            main.startRotation = new ParticleSystem.MinMaxCurve(flowAngle);
+
             var em = ps.emission;
-            em.rateOverTime = 10f; // 4つ合計で 40/sec
+            em.rateOverTime = 7f; // 4つ合計で 28/sec
 
             // 担当区間（1/4の長さ）の川幅のBox（ワールド座標系でも GO の向きに追従）
             var sh = ps.shape;
@@ -845,6 +938,17 @@ namespace ElfVillage.Tiles
         }
 
         public bool IsEdgeConnected(int dir) => _connectedEdges[((dir % 6) + 6) % 6];
+
+        /// <summary>
+        /// world方向dirの辺を「川として開放」する。タイル同士のカテゴリ一致(MarkConnectedEdge)とは独立に、
+        /// その方向の辺自体がEdgeType.River同士で一致している場合にのみ呼ぶこと（HexGridManagerが判定）。
+        /// </summary>
+        public void MarkRiverEdgeOpen(int dir)
+        {
+            _riverEdgeOpen[((dir % 6) + 6) % 6] = true;
+        }
+
+        public bool IsRiverEdgeOpen(int dir) => _riverEdgeOpen[((dir % 6) + 6) % 6];
 
         /// <summary>ローカル方向インデックスの辺中心をワールド座標で返す（タイル回転の影響を受ける）。</summary>
         public Vector3 EdgeCenterWorld(int dir)

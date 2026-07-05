@@ -1,7 +1,7 @@
 ﻿{
     "name": "_Game.Scripts.UI",
     "rootNamespace": "ElfVillage.UI",
-    "references": ["_Game.Scripts.Core", "_Game.Scripts.Tiles", "_Game.Scripts.Quest"],
+    "references": ["_Game.Scripts.Core", "_Game.Scripts.Tiles", "_Game.Scripts.Quest", "Unity.InputSystem"],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,

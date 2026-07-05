@@ -42,6 +42,17 @@ namespace ElfVillage.Tiles
             OnHandChanged?.Invoke();
         }
 
+        /// <summary>デッキに登録されている有効なタイル種別を重複なく返す（デバッグパネル用）。</summary>
+        public List<TileType> AllActiveTileTypes()
+        {
+            var result = new List<TileType>();
+            if (entries == null) return result;
+            foreach (var e in entries)
+                if (e.tileType != null && e.tileType.isActive && !result.Contains(e.tileType))
+                    result.Add(e.tileType);
+            return result;
+        }
+
         private void DrawOne()
         {
             if (entries == null || entries.Length == 0) return;

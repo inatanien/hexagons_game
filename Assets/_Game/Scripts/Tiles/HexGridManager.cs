@@ -39,6 +39,12 @@ namespace ElfVillage.Tiles
         // isActive == true のみキャッシュ（Start で確定）
         private TileType[] _activeWorldTypes;
 
+        /// <summary>
+        /// デバッグパネルなどから設定する、手札より優先される配置候補タイル。
+        /// 設定されている間は配置しても手札を消費せず、同じタイルを何度でも配置できる。
+        /// </summary>
+        public TileType DebugOverrideType { get; set; }
+
         // ── 入力状態 ─────────────────────────────────────────────────
         private int   _currentRotation  = 0;
         private float _leftPressTime    = -1f;
@@ -148,7 +154,7 @@ namespace ElfVillage.Tiles
             Ray     ray = _mainCamera.ScreenPointToRay(mouse.position.ReadValue());
             HexTile hit = RaycastTile(ray);
 
-            TileType currentType  = tileDeck != null ? tileDeck.Current : null;
+            TileType currentType  = DebugOverrideType != null ? DebugOverrideType : (tileDeck != null ? tileDeck.Current : null);
             bool     newCanPlace  = true;
             bool     newEdgeMatch = true;
 
@@ -190,13 +196,14 @@ namespace ElfVillage.Tiles
             if (_hoveredTile == null || _hoveredTile.IsPlaced) return;
             if (!_hoveredCanPlace) return;
 
-            TileType currentType = tileDeck != null ? tileDeck.Current : null;
+            TileType currentType = DebugOverrideType != null ? DebugOverrideType : (tileDeck != null ? tileDeck.Current : null);
             if (currentType == null) return;
 
             HexCoord placedCoord = _hoveredTile.Data.coord;
             HexTile  placedTile  = _hoveredTile;
             placedTile.Place(currentType, _currentRotation);
-            tileDeck.ConsumeTop();
+            // デバッグ選択中は手札を消費しない（同じタイルを何度でも配置できる）
+            if (DebugOverrideType == null) tileDeck.ConsumeTop();
             RegisterPlacement(placedCoord);
             CheckAndApplyConnections(placedCoord);
             // 接続有無に関わらず全配置で発行（成長評価システムの起点）
@@ -222,6 +229,7 @@ namespace ElfVillage.Tiles
             if (placed.Data.tileType == null) return;
 
             var edges = new List<ConnectionEdge>();
+            bool anyRiverEdgeMatch = false;
             for (int dir = 0; dir < 6; dir++)
             {
                 HexCoord nCoord = coord.Neighbor(dir);
@@ -234,7 +242,22 @@ namespace ElfVillage.Tiles
                 placed.MarkConnectedEdge(dir);
                 neighbor.MarkConnectedEdge((dir + 3) % 6);
                 edges.Add(new ConnectionEdge(dir, neighbor));
+
+                // タイル同士のカテゴリ一致ではなく、辺そのものがEdgeType.River同士で一致する場合のみ
+                // 川として開放する（例: 川タイル同士でも互いにField辺を向け合っている場合は開放しない）
+                bool riverEdgeMatch = placed.Data.GetEdge(dir) == EdgeType.River
+                                   && neighbor.Data.GetEdge(dir + 3) == EdgeType.River;
+                if (riverEdgeMatch)
+                {
+                    placed.MarkRiverEdgeOpen(dir);
+                    neighbor.MarkRiverEdgeOpen((dir + 3) % 6);
+                    neighbor.RefreshRiverChannelMesh();
+                    anyRiverEdgeMatch = true;
+                }
             }
+
+            if (anyRiverEdgeMatch)
+                placed.RefreshRiverChannelMesh();
 
             if (edges.Count > 0)
                 EventBus.Publish(new TileConnectedEvent(placed, placed.Data.tileType, edges));
