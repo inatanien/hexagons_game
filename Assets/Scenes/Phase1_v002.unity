@@ -957,6 +957,8 @@ GameObject:
   - component: {fileID: 1015676114}
   - component: {fileID: 1015676117}
   - component: {fileID: 1015676116}
+  - component: {fileID: 1015676119}
+  - component: {fileID: 1015676118}
   m_Layer: 0
   m_Name: WorldBreath
   m_TagString: Untagged
@@ -1178,6 +1180,45 @@ MonoBehaviour:
   _typesB:
   - {fileID: 11400000, guid: 3182f2efabe78e4419dc8f286e182eaa, type: 2}
   _minCountB: 8
+--- !u!114 &1015676118
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1015676104}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b189e31b666cb0946bfa4650a84baabd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _deckSegments: 8
+  _deckWidth: 0.45
+  _deckThickness: 0.035
+  _archHeight: 0.18
+  _bankOverhang: 0.08
+  _railHeight: 0.07
+  _railThickness: 0.025
+  _deckColor: {r: 0.62, g: 0.58, b: 0.52, a: 1}
+  _railColor: {r: 0.42, g: 0.36, b: 0.3, a: 1}
+--- !u!114 &1015676119
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1015676104}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6d80951906ad8184f8c59d0fb4a6cead, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _gridManager: {fileID: 1774834703}
+  _riverTileTypes:
+  - {fileID: 11400000, guid: 1aaad23d86171b84ab2e32d535387fd3, type: 2}
+  - {fileID: 11400000, guid: c2f3849b0bb088348ad08e46ce210421, type: 2}
+  - {fileID: 11400000, guid: 895e80cc86063f54abc5a19bbc16da58, type: 2}
+  _interval: 5
 --- !u!1 &1034581677
 GameObject:
   m_ObjectHideFlags: 0

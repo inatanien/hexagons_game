@@ -218,6 +218,32 @@ namespace ElfVillage.Tiles
             }
         }
 
+        /// <summary>
+        /// 川タイルの橋を架けるための基準点をタイルローカル座標で取得する。
+        /// 流路曲線の中央（t=0.5）の位置・流れの接線方向・川幅を返す。川タイルでなければ false。
+        /// </summary>
+        public bool TryGetRiverBridgeAnchor(out Vector3 localCenter, out Vector3 localTangent, out float riverWidth)
+        {
+            localCenter  = Vector3.zero;
+            localTangent = Vector3.forward;
+            riverWidth   = 0f;
+            if (Data.tileType == null || Data.tileType.propType != TilePropType.Water) return false;
+
+            ComputeRiverEdgeIndices(Data.tileType, out int edgeAIdx, out int edgeBIdx);
+            float   inRadius   = outerRadius * 0.866f;
+            Vector3 posA       = EdgeCenter(edgeAIdx, inRadius);
+            Vector3 posB       = EdgeCenter(edgeBIdx, inRadius);
+            bool    isStraight = ((posA + posB) * 0.5f).sqrMagnitude < 0.01f;
+            Vector3 ctrl       = isStraight ? (posA + posB) * 0.5f : Vector3.zero;
+
+            const float dt = 0.02f;
+            localCenter  = QuadBezier(posA, ctrl, posB, 0.5f);
+            localTangent = (QuadBezier(posA, ctrl, posB, 0.5f + dt)
+                           - QuadBezier(posA, ctrl, posB, 0.5f - dt)).normalized;
+            riverWidth   = outerRadius * 0.5f;
+            return true;
+        }
+
         // ── プロップ生成（プレイヤー配置・世界生成共通）──────────────────────
 
         private void SpawnPropsFor(TileType type, Transform parent)
@@ -800,7 +826,7 @@ namespace ElfVillage.Tiles
         {
             ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
 
-            const float flowSpeed = 0.75f;
+            const float flowSpeed = 0.5f;
 
             var main = ps.main;
             main.loop            = true;
