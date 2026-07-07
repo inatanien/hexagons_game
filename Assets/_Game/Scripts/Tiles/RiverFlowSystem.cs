@@ -101,7 +101,22 @@ namespace ElfVillage.Tiles
                         Cascade(evt.PlacedTile, upstream: true);
                     }
                 }
-                // 両方すでに流れ中：変更なし
+                else if (sx.IsFlowing && sy.IsFlowing)
+                {
+                    // 両方すでに別々の川として流れている＝独立した2本の川がこの接続で合流するケース。
+                    // 向きが噛み合っているか確認し、噛み合っていなければ（両方流出 or 両方流入）
+                    // 隣接側(Y)のチェーン全体を反転して一方向に揃える。
+                    bool xToY = dXY == sx.ExitDir  && dYX == sy.EntryDir;
+                    bool yToX = dXY == sx.EntryDir && dYX == sy.ExitDir;
+                    if (!xToY && !yToX)
+                    {
+                        // X側(evt.PlacedTile)を訪問済みにしてから反転を始めることで、
+                        // 接続元を越えてX側のチェーンまで巻き込んで反転してしまうのを防ぐ
+                        // （そうしないと双方が反転され、噛み合わないまま元に戻ってしまう）。
+                        var visited = new HashSet<HexTile> { evt.PlacedTile };
+                        ReverseChain(edge.Neighbor, visited);
+                    }
+                }
             }
         }
 
@@ -155,6 +170,25 @@ namespace ElfVillage.Tiles
 
             Activate(ns, next, en, ex);
             Cascade(next, upstream);
+        }
+
+        // ─── チェーン全体の反転（2本の川の合流時に向きを揃えるため） ────────────
+
+        private void ReverseChain(HexTile tile, HashSet<HexTile> visited)
+        {
+            if (!_states.TryGetValue(tile, out var s) || !s.IsFlowing) return;
+            if (!visited.Add(tile)) return;
+
+            int oldEntry = s.EntryDir;
+            int oldExit  = s.ExitDir;
+            s.EntryDir = oldExit;
+            s.ExitDir  = oldEntry;
+            tile.ReverseWaterFlow();
+
+            if (oldEntry >= 0 && _coordMap.TryGetValue(tile.Data.coord.Neighbor(oldEntry), out var upTile))
+                ReverseChain(upTile, visited);
+            if (oldExit >= 0 && _coordMap.TryGetValue(tile.Data.coord.Neighbor(oldExit), out var downTile))
+                ReverseChain(downTile, visited);
         }
 
         // ─── ヘルパー ────────────────────────────────────────────────────────
