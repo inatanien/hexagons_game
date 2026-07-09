@@ -174,7 +174,12 @@ namespace ElfVillage.Tiles
                     _hoveredTile.Highlight(true, _hoveredCanPlace);
             }
 
-            preview?.UpdatePreview(_hoveredTile, _hoveredCanPlace, currentType, _currentRotation);
+            // 同じ tileCategory の隣接タイルがある方向を検出し、プレビューの境界線を光らせる
+            bool[] synergyEdges = null;
+            if (_hoveredTile != null && !_hoveredTile.IsPlaced && newCanPlace && currentType != null)
+                synergyEdges = EdgeMatcher.GetSynergyEdges(_hoveredTile.Data.coord, currentType, _grid);
+
+            preview?.UpdatePreview(_hoveredTile, _hoveredCanPlace, currentType, _currentRotation, synergyEdges);
         }
 
         private void HandlePlacement()

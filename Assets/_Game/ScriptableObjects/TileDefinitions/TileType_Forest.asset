@@ -14,6 +14,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   tileName: Forest
   tileColor: {r: 0.13, g: 0.55, b: 0.13, a: 1}
+  tileCategory: Forest
+  isActive: 1
   propType: 1
   propCount: 3
+  dividerType: 0
+  connectorColor: {r: 0, g: 0, b: 0, a: 0}
+  connectorPrefab: {fileID: 0}
   edges: 010000000100000001000000010000000100000001000000

@@ -71,5 +71,26 @@ namespace ElfVillage.Tiles
                 if (tile.IsPlaced) return true;
             return false;
         }
+
+        /// <summary>
+        /// 指定セルに tileType を置いたとき、6方向それぞれについて
+        /// 配置済みの隣接タイルが同じ tileCategory を持つかを返す（配置プレビューの演出用）。
+        /// </summary>
+        public static bool[] GetSynergyEdges(
+            HexCoord coord,
+            TileType tileType,
+            IReadOnlyDictionary<HexCoord, HexTile> grid)
+        {
+            var result = new bool[6];
+            if (tileType == null) return result;
+
+            for (int dir = 0; dir < 6; dir++)
+            {
+                if (!grid.TryGetValue(coord.Neighbor(dir), out HexTile neighborTile)) continue;
+                if (!neighborTile.IsPlaced) continue;
+                result[dir] = SameCategory(tileType, neighborTile.Data.tileType);
+            }
+            return result;
+        }
     }
 }

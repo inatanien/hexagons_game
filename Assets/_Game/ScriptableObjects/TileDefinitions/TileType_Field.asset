@@ -14,6 +14,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   tileName: Field
   tileColor: {r: 0.76, g: 0.88, b: 0.34, a: 1}
+  tileCategory: Field
+  isActive: 1
   propType: 4
   propCount: 5
+  dividerType: 0
+  connectorColor: {r: 0, g: 0, b: 0, a: 0}
+  connectorPrefab: {fileID: 0}
   edges: 020000000200000002000000020000000200000002000000
