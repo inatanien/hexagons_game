@@ -62,10 +62,14 @@ namespace ElfVillage.Tiles
 
                 CreateBeam(root.transform, mid, rot, len, _deckWidth, _deckThickness, _deckColor);
 
-                float   railY      = _railHeight * 0.5f + _deckThickness * 0.5f;
-                Vector3 railOffset = rot * new Vector3(_deckWidth * 0.5f, railY, 0f);
-                CreateBeam(root.transform, mid + railOffset, rot, len, _railThickness, _railHeight, _railColor);
-                CreateBeam(root.transform, mid - railOffset, rot, len, _railThickness, _railHeight, _railColor);
+                // 横方向オフセットのみ符号反転して左右に振り分け、上方向オフセットは両側とも
+                // 常に同じ向き（+）で加える。両方まとめて rot * (±w, railY, 0) にすると、
+                // 反対側は railY も反転してデッキの下に沈んでしまう（既知の不具合）。
+                float   railY     = _railHeight * 0.5f + _deckThickness * 0.5f;
+                Vector3 sideOffset = rot * new Vector3(_deckWidth * 0.5f, 0f, 0f);
+                Vector3 upOffset   = rot * new Vector3(0f, railY, 0f);
+                CreateBeam(root.transform, mid + sideOffset + upOffset, rot, len, _railThickness, _railHeight, _railColor);
+                CreateBeam(root.transform, mid - sideOffset + upOffset, rot, len, _railThickness, _railHeight, _railColor);
 
                 prevPos = curPos;
             }
