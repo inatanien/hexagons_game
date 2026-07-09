@@ -48,6 +48,7 @@
 | Hex座標系 | `HexCoord.cs` | Cube Coordinates (q,r,s)、フラットトップ |
 | グリッド管理 | `HexGridManager.cs` | 半径11（397タイル）、配置・取得 |
 | タイル本体 | `HexTile.cs` | メッシュ生成・プロップ配置・川フロー |
+| 川タイルメッシュ | `RiverChannelMeshBuilder.cs` | 川タイル天面に流路の溝を彫り込み。境界を正確にリメッシュしz-fighting無し |
 | エッジマッチング | `EdgeMatcher.cs` | 6方向接続判定 |
 | カメラ | `CameraController.cs` | RTSピボット、パン/ズーム/回転 |
 | デッキ・手札UI | `TileDeck.cs` / `HandUI.cs` | タイル供給・手札表示 |
@@ -81,6 +82,8 @@
 | `RiverFlowSystem` | 川タイル配置・接続 | 水流方向を確定・伝播 |
 | `RiverGrowthEvaluator` | 川タイル8枚以上連結 | RiverClusterEvent発行 |
 | `FishSystem` | RiverClusterEvent受信 | 魚が泳ぐ・跳ねる |
+| `RiverBridgeEvaluator` | 川タイル5枚ごとに連結（5,10,15…） | RiverBridgeEvent発行 |
+| `BridgeSystem` | RiverBridgeEvent受信 | アーチ橋をプロシージャル生成（流れに垂直、川幅に収まるサイズ） |
 | `FlowerClusterEvaluator` | 花畑タイル3枚以上連結 | FlowerClusterEvent発行 |
 | `FlowerPetalSystem` | FlowerClusterEvent受信 | 花びらが舞う（段階的に色追加） |
 
@@ -99,6 +102,16 @@
 - タイルを置いた**瞬間**に流れ方向が確定する
 - 複数の川タイルを繋げると上流・下流方向が自動伝播（BFS Cascade）
 - タイルを回転させても常に一方向に流れる（`GetWorldDirEdgePos` で座標系ミスマッチ解決済み）
+- 独立して伸びていた2本の川チェーンが1枚のタイルで合流したとき、向きが噛み合っていなければ
+  片方のチェーン全体を反転して一方向に統一する（`RiverFlowSystem.ReverseChain`）
+
+---
+
+## デバッグ機能
+
+| コンポーネント | 操作 | 内容 |
+|--------------|------|------|
+| `DebugTilePanel` | F1キーで表示/非表示 | 画面左に一覧パネルを表示し、好きなタイル種別を手札を消費せず何度でも配置できる |
 
 ---
 
@@ -117,6 +130,7 @@ Domain          HexCoord / TileData / TileType（純粋C#/ScriptableObject）
 - `TileConnectedEvent` — タイル接続時（エッジマッチ成立）
 - `TerrainGrowthEvent<T>` — 地形クラスター成長時
 - `RiverClusterEvent` — 川8枚以上連結時
+- `RiverBridgeEvent` — 川5枚ごとに連結時（アーチ橋生成のトリガー）
 - `FlowerClusterEvent` — 花畑3枚以上連結時
 - `TerrainSynergyEvent` — 地形シナジー発生時
 - `FirstTilePlacedEvent` — 最初のタイル配置時
