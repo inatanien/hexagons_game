@@ -294,21 +294,24 @@ namespace ElfVillage.Tiles
             float ground = tileHeight + 0.01f;
             for (int i = 0; i < count; i++)
             {
-                float angle  = i * (360f / count) * Mathf.Deg2Rad;
-                float radius = count > 1 ? 0.45f : 0f;
+                // プレビューには coord が無いため index のみで疑似乱数を作る
+                int   seed   = i * 40361 + 7919;
+                float rNorm  = count > 1 ? Mathf.Sqrt((i + 0.5f) / count) : 0f;
+                float radius = Mathf.Max(0f, rNorm * TreeMaxRadius + ((seed / 21) % 21 - 10) / 200f);
+                float angle  = (i * TreeGoldenAngleDeg + (seed % 21) - 10f) * Mathf.Deg2Rad;
                 var   offset = new Vector3(Mathf.Cos(angle) * radius, 0f, Mathf.Sin(angle) * radius);
 
-                var trunk = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-                trunk.transform.SetParent(parent);
-                trunk.transform.localPosition = offset + new Vector3(0f, ground + 0.20f, 0f);
-                trunk.transform.localScale    = new Vector3(0.12f, 0.22f, 0.12f);
-                SetPropMaterial(trunk, new Color(0.42f, 0.26f, 0.10f));
-
-                var crown = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                crown.transform.SetParent(parent);
-                crown.transform.localPosition = offset + new Vector3(0f, ground + 0.60f, 0f);
-                crown.transform.localScale    = new Vector3(0.45f, 0.52f, 0.45f);
-                SetPropMaterial(crown, new Color(0.10f, 0.44f, 0.10f));
+                GameObject prefab = PickTreeVariant(type, seed, out int variantIndex);
+                if (prefab != null)
+                {
+                    var go = Object.Instantiate(prefab, parent);
+                    go.transform.localPosition = offset + new Vector3(0f, ground, 0f);
+                    go.transform.localRotation = Quaternion.Euler(0f, seed % 360, 0f);
+                    go.transform.localScale   *= 0.90f + (seed % 21) / 100f;
+                    RemoveCollidersRecursive(go);
+                    continue;
+                }
+                SpawnPrimitiveTreeVariant(parent, offset, ground, variantIndex, seed);
             }
         }
 
@@ -332,31 +335,16 @@ namespace ElfVillage.Tiles
 
         private static void SpawnFlowersStatic(TileType type, Transform parent, float tileHeight)
         {
-            int   count  = Mathf.Max(1, type.propCount);
-            float ground = tileHeight + 0.01f;
+            int count = Mathf.Max(1, type.propCount);
             for (int i = 0; i < count; i++)
             {
-                float angle  = i * (360f / count) * Mathf.Deg2Rad;
-                var   offset = new Vector3(Mathf.Cos(angle) * 0.35f, 0f, Mathf.Sin(angle) * 0.35f);
-                var   color  = FlowerPetalColor(i);
-
-                var stem = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-                stem.transform.SetParent(parent);
-                stem.transform.localPosition = offset + new Vector3(0f, ground + 0.07f, 0f);
-                stem.transform.localScale    = new Vector3(0.03f, 0.07f, 0.03f);
-                SetPropMaterial(stem, new Color(0.25f, 0.55f, 0.15f));
-
-                var petal = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                petal.transform.SetParent(parent);
-                petal.transform.localPosition = offset + new Vector3(0f, ground + 0.17f, 0f);
-                petal.transform.localScale    = new Vector3(0.16f, 0.08f, 0.16f);
-                SetPropMaterial(petal, color);
-
-                var center = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                center.transform.SetParent(parent);
-                center.transform.localPosition = offset + new Vector3(0f, ground + 0.19f, 0f);
-                center.transform.localScale    = new Vector3(0.07f, 0.06f, 0.07f);
-                SetPropMaterial(center, new Color(1.0f, 0.88f, 0.1f));
+                // プレビューには coord が無いため index のみで疑似乱数を作る
+                int   seed   = i * 7919 + 31;
+                float rNorm  = count > 1 ? Mathf.Sqrt((i + 0.5f) / count) : 0f;
+                float radius = Mathf.Max(0f, rNorm * FlowerMaxRadius + ((seed % 21) - 10) / 200f);
+                float angle  = (i * FlowerGoldenAngleDeg + (seed % 21) - 10f) * Mathf.Deg2Rad;
+                var   offset = new Vector3(Mathf.Cos(angle) * radius, 0f, Mathf.Sin(angle) * radius);
+                SpawnFieldProp(parent, tileHeight, offset, seed);
             }
         }
 
@@ -549,52 +537,164 @@ namespace ElfVillage.Tiles
                       new Vector3(width, 0.03f, len), color);
         }
 
+        // 黄金角スパイラル（Vogel法）でタイル内に木をまんべんなく散らす。
+        // 半径を sqrt(i/count) で増やすことで、リング状に偏らせず面積あたりの密度を均一にする。
+        private const float TreeGoldenAngleDeg = 137.50776f;
+        private const float TreeMaxRadius      = 1.35f; // タイル境界（inRadius≈1.73）から木の葉半径ぶん内側まで使う
+
         private void SpawnTrees(TileType type, Transform parent)
         {
             int count = Mathf.Max(1, type.propCount);
+            float baseRotation = Data.coord.q * 23f + Data.coord.r * 37f; // タイルごとに向きをずらす
             for (int i = 0; i < count; i++)
             {
-                // coord ベースの擬似乱数で木の位置を決定（再現性あり・Random.seed 不要）
-                float angle  = (i * (360f / count) + Data.coord.q * 23f + Data.coord.r * 37f) * Mathf.Deg2Rad;
-                float radius = count > 1 ? 0.45f : 0f;
+                // coord ベースの擬似乱数で木の位置・バリエーションを決定（再現性あり・Random.seed 不要）
+                int   seed   = Mathf.Abs(Data.coord.q * 92821 + Data.coord.r * 68917 + i * 40361);
+                float rNorm  = count > 1 ? Mathf.Sqrt((i + 0.5f) / count) : 0f;
+                float radius = Mathf.Max(0f, rNorm * TreeMaxRadius + ((seed / 21) % 21 - 10) / 200f);
+                float angle  = (i * TreeGoldenAngleDeg + baseRotation + (seed % 21) - 10f) * Mathf.Deg2Rad;
                 var   offset = new Vector3(Mathf.Cos(angle) * radius, 0f, Mathf.Sin(angle) * radius);
-                SpawnSingleTree(parent, offset);
+                SpawnSingleTree(type, parent, offset, seed);
             }
         }
 
-        private void SpawnSingleTree(Transform parent, Vector3 offset)
+        /// <summary>
+        /// バリエーションプレハブが設定されていればそれを配置し、空欄なら標準プリミティブの木に
+        /// フォールバックする（TileType.treeVariantPrefabs 参照）。
+        /// </summary>
+        private void SpawnSingleTree(TileType type, Transform parent, Vector3 offset, int seed)
         {
             float ground = tileHeight + 0.01f;
+            GameObject prefab = PickTreeVariant(type, seed, out int variantIndex);
+
+            if (prefab != null)
+            {
+                var go = Instantiate(prefab, parent);
+                go.transform.localPosition = offset + new Vector3(0f, ground, 0f);
+                go.transform.localRotation = Quaternion.Euler(0f, seed % 360, 0f);
+                go.transform.localScale   *= 0.90f + (seed % 21) / 100f; // 0.90〜1.10 のサイズジッター
+                RemoveCollidersRecursive(go);
+                return;
+            }
+
+            SpawnPrimitiveTreeVariant(parent, offset, ground, variantIndex, seed);
+        }
+
+        /// <summary>
+        /// type.treeVariantPrefabs から seed に基づき決定論的に1枠選ぶ。
+        /// 枠が空欄（未設定）の場合は null を返す（呼び出し側でプリミティブにフォールバック）。
+        /// </summary>
+        private static GameObject PickTreeVariant(TileType type, int seed, out int variantIndex)
+        {
+            var prefabs   = type.treeVariantPrefabs;
+            int slotCount = (prefabs != null && prefabs.Length > 0) ? prefabs.Length : 10;
+            variantIndex  = seed % slotCount;
+
+            if (prefabs != null && variantIndex < prefabs.Length && prefabs[variantIndex] != null)
+                return prefabs[variantIndex];
+            return null;
+        }
+
+        // プレハブ未設定時のフォールバック。variantIndex で葉の色相・大きさを、
+        // seed で個体ごとの全体サイズをずらし、プレハブ無しでも見た目に変化を出す。
+        private static void SpawnPrimitiveTreeVariant(Transform parent, Vector3 offset, float ground,
+                                                        int variantIndex, int seed)
+        {
+            float sizeMul  = 0.85f + (seed % 31) / 100f;           // 0.85〜1.15
+            float crownMul = 0.90f + (variantIndex % 5) * 0.05f;   // 0.90〜1.10
+            float hue      = 0.28f + (variantIndex % 10) * 0.012f; // 葉の色相を少しずつずらす
 
             var trunk = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             trunk.transform.SetParent(parent);
-            trunk.transform.localPosition = offset + new Vector3(0f, ground + 0.20f, 0f);
-            trunk.transform.localScale    = new Vector3(0.12f, 0.22f, 0.12f);
+            trunk.transform.localPosition = offset + new Vector3(0f, ground + 0.20f * sizeMul, 0f);
+            trunk.transform.localScale    = new Vector3(0.12f, 0.22f, 0.12f) * sizeMul;
             SetPropMaterial(trunk, new Color(0.42f, 0.26f, 0.10f));
 
             var crown = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             crown.transform.SetParent(parent);
-            crown.transform.localPosition = offset + new Vector3(0f, ground + 0.60f, 0f);
-            crown.transform.localScale    = new Vector3(0.45f, 0.52f, 0.45f);
-            SetPropMaterial(crown, new Color(0.10f, 0.44f, 0.10f));
+            crown.transform.localPosition = offset + new Vector3(0f, ground + 0.60f * sizeMul, 0f);
+            crown.transform.localScale    = new Vector3(0.45f, 0.52f, 0.45f) * (sizeMul * crownMul);
+            SetPropMaterial(crown, Color.HSVToRGB(hue, 0.75f, 0.42f));
         }
+
+        // 実モデルプレハブを Instantiate したときに、タイルへのレイキャストを妨げないよう
+        // 子階層すべての Collider を除去する（SetPropMaterial のプリミティブ版と対の処理）。
+        private static void RemoveCollidersRecursive(GameObject go)
+        {
+            foreach (var col in go.GetComponentsInChildren<Collider>())
+                Object.Destroy(col);
+        }
+
+        // 黄金角スパイラル（Vogel法）でタイル内に花をまんべんなく散らす（木と同じ考え方）。
+        private const float FlowerGoldenAngleDeg = 137.50776f;
+        private const float FlowerMaxRadius      = 1.5f; // 花は木より footprint が小さいのでより外側まで使う
 
         private void SpawnFlowers(TileType type, Transform parent)
         {
-            int count = Mathf.Max(1, type.propCount);
+            // propCount を上限として扱い、実際の本数はタイルごとに上限〜上限の半分の範囲でランダムに決める
+            // （coordベースの疑似乱数のため再現性あり・Random.seed 不要）
+            int maxCount   = Mathf.Max(1, type.propCount);
+            int minCount   = Mathf.Max(1, maxCount / 2);
+            int countSeed  = Mathf.Abs(Data.coord.q * 92821 + Data.coord.r * 68917);
+            int count      = minCount + countSeed % (maxCount - minCount + 1);
+
+            float baseRotation = Data.coord.q * 23f + Data.coord.r * 37f; // タイルごとに向きをずらす
             for (int i = 0; i < count; i++)
             {
                 // coord ベースの擬似乱数で花の位置・色を決定（再現性あり）
                 int   seed   = Data.coord.q * 31 + Data.coord.r * 17 + i * 7;
-                float angle  = (i * (360f / count) + (seed % 40) - 20f) * Mathf.Deg2Rad;
-                float radius = 0.25f + (seed % 100) / 1000f * 3f; // 0.25〜0.55
+                float rNorm  = count > 1 ? Mathf.Sqrt((i + 0.5f) / count) : 0f;
+                float radius = Mathf.Max(0f, rNorm * FlowerMaxRadius + ((seed % 21) - 10) / 200f);
+                float angle  = (i * FlowerGoldenAngleDeg + baseRotation + (seed % 21) - 10f) * Mathf.Deg2Rad;
                 var   offset = new Vector3(Mathf.Cos(angle) * radius, 0f, Mathf.Sin(angle) * radius);
-                var   color  = FlowerPetalColor(seed);
-                SpawnSingleFlower(parent, offset, color);
+                SpawnFieldProp(parent, tileHeight, offset, seed);
             }
         }
 
-        private void SpawnSingleFlower(Transform parent, Vector3 offset, Color petalColor)
+        // ── 花畑タイルの構成比: 草・葉60% / 低い植物20% / 花15% / 小石・切り株5% ──────────
+        // 位置ごとに seed で振り分ける。実配置・プレビュー両方から呼ばれる共通ロジック。
+        private static void SpawnFieldProp(Transform parent, float tileHeight, Vector3 offset, int seed)
+        {
+            int roll = ((seed % 100) + 100) % 100;
+            if (roll < 60)      SpawnGrassTuft(parent, tileHeight, offset, seed);
+            else if (roll < 80) SpawnLowPlant(parent, tileHeight, offset, seed);
+            else if (roll < 95) SpawnSingleFlower(parent, tileHeight, offset, FlowerPetalColor(seed));
+            else                SpawnStoneOrStump(parent, tileHeight, offset, seed);
+        }
+
+        // 🌿 草・葉っぱ: 細い葉を2〜3枚、向きと色合いを少しずつずらして束ねる
+        private static void SpawnGrassTuft(Transform parent, float tileHeight, Vector3 offset, int seed)
+        {
+            float ground     = tileHeight + 0.01f;
+            int   bladeCount = 2 + seed % 2; // 2〜3枚
+            for (int b = 0; b < bladeCount; b++)
+            {
+                int   s    = seed + b * 53;
+                float tilt = (s % 25 - 12) * 1.0f; // -12〜12度
+                var   blade = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                blade.transform.SetParent(parent);
+                blade.transform.localPosition = offset + new Vector3(0f, ground + 0.05f, 0f);
+                blade.transform.localRotation = Quaternion.Euler(tilt, (s * 67) % 360, 0f);
+                blade.transform.localScale    = new Vector3(0.015f, 0.05f + (s % 11) / 300f, 0.015f);
+                SetPropMaterial(blade, Color.HSVToRGB(0.30f + (s % 10) * 0.01f, 0.55f, 0.40f));
+            }
+        }
+
+        // 🌱 低い植物: 草より少し丸く低い茂み
+        private static void SpawnLowPlant(Transform parent, float tileHeight, Vector3 offset, int seed)
+        {
+            float ground = tileHeight + 0.01f;
+            float size   = 0.12f + (seed % 21) / 300f; // 0.12〜0.19
+
+            var bush = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            bush.transform.SetParent(parent);
+            bush.transform.localPosition = offset + new Vector3(0f, ground + size * 0.5f, 0f);
+            bush.transform.localScale    = new Vector3(size, size * 0.7f, size);
+            SetPropMaterial(bush, Color.HSVToRGB(0.27f + (seed % 8) * 0.01f, 0.60f, 0.36f));
+        }
+
+        // 🌼 花（茎＋花びら＋中心）。既存の見た目をそのまま static 化して実配置・プレビュー共通に使う
+        private static void SpawnSingleFlower(Transform parent, float tileHeight, Vector3 offset, Color petalColor)
         {
             float ground = tileHeight + 0.01f;
 
@@ -618,6 +718,49 @@ namespace ElfVillage.Tiles
             center.transform.localPosition = offset + new Vector3(0f, ground + 0.19f, 0f);
             center.transform.localScale    = new Vector3(0.07f, 0.06f, 0.07f);
             SetPropMaterial(center, new Color(1.0f, 0.88f, 0.1f));
+        }
+
+        // 🪨 小石・切り株: 小石は控えめ（20%）、残りは切り株
+        private static void SpawnStoneOrStump(Transform parent, float tileHeight, Vector3 offset, int seed)
+        {
+            float ground = tileHeight + 0.01f;
+            // seed % 100（外側の構成比判定）と単純な四則演算で二次判定を作ると、
+            // 同じ剰余に強く相関してしまい分布が偏るため、ビットを混ぜるハッシュで独立させる
+            int   stoneRoll = Mathf.Abs(HashInt(seed)) % 100;
+            if (stoneRoll >= 20)
+            {
+                // 切り株
+                var stump = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                stump.transform.SetParent(parent);
+                stump.transform.localPosition = offset + new Vector3(0f, ground + 0.05f, 0f);
+                stump.transform.localScale    = new Vector3(0.10f, 0.05f, 0.10f);
+                SetPropMaterial(stump, new Color(0.45f, 0.32f, 0.20f));
+            }
+            else
+            {
+                // 小石
+                var stone = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                stone.transform.SetParent(parent);
+                stone.transform.localPosition = offset + new Vector3(0f, ground + 0.035f, 0f);
+                stone.transform.localRotation = Quaternion.Euler(0f, seed % 360, 0f);
+                stone.transform.localScale    = new Vector3(0.11f, 0.06f, 0.09f);
+                SetPropMaterial(stone, new Color(0.55f, 0.54f, 0.52f));
+            }
+        }
+
+        // 整数ハッシュ（Wang hash 風）。seed % 100 のような単純な剰余とは相関しない値を
+        // 得たいときに使う（例: 同じ seed から複数の独立した判定を作りたい場合）。
+        private static int HashInt(int x)
+        {
+            unchecked
+            {
+                x = (x ^ 61) ^ (x >> 16);
+                x += x << 3;
+                x ^= x >> 4;
+                x *= 0x27d4eb2d;
+                x ^= x >> 15;
+                return x;
+            }
         }
 
         // 座標ハッシュから花びらの色を決定（ピンク・白・薄紫・薄青の4色）

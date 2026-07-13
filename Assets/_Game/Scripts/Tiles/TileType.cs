@@ -52,6 +52,11 @@ namespace ElfVillage.Tiles
         public TilePropType propType  = TilePropType.None;
         [Tooltip("生成するプロップの数（Tree のみ有効）")]
         public int          propCount = 1;
+        [Tooltip("木のバリエーションプレハブ（propType=Tree のみ有効・各要素空欄可）。\n" +
+                  "木を配置するたびにこの中からランダムに1つ選ばれる。\n" +
+                  "空欄のバリエーションは標準プリミティブの木にフォールバックするので、\n" +
+                  "後から実モデルに差し替えるまでは何も設定しなくてよい。")]
+        public GameObject[] treeVariantPrefabs = new GameObject[10];
 
         [Header("分割線")]
         public TileDividerType dividerType = TileDividerType.None;

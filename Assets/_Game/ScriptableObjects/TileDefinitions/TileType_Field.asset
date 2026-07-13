@@ -17,7 +17,18 @@ MonoBehaviour:
   tileCategory: Field
   isActive: 1
   propType: 4
-  propCount: 5
+  propCount: 50
+  treeVariantPrefabs:
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
   dividerType: 0
   connectorColor: {r: 0, g: 0, b: 0, a: 0}
   connectorPrefab: {fileID: 0}

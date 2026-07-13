@@ -17,7 +17,18 @@ MonoBehaviour:
   tileCategory: Forest
   isActive: 1
   propType: 1
-  propCount: 3
+  propCount: 10
+  treeVariantPrefabs:
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
   dividerType: 0
   connectorColor: {r: 0, g: 0, b: 0, a: 0}
   connectorPrefab: {fileID: 0}
