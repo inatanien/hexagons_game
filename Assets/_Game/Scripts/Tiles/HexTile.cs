@@ -336,6 +336,8 @@ namespace ElfVillage.Tiles
         private static void SpawnFlowersStatic(TileType type, Transform parent, float tileHeight)
         {
             int count = Mathf.Max(1, type.propCount);
+            var positions = new Vector3[count];
+            var seeds     = new int[count];
             for (int i = 0; i < count; i++)
             {
                 // プレビューには coord が無いため index のみで疑似乱数を作る
@@ -343,9 +345,10 @@ namespace ElfVillage.Tiles
                 float rNorm  = count > 1 ? Mathf.Sqrt((i + 0.5f) / count) : 0f;
                 float radius = Mathf.Max(0f, rNorm * FlowerMaxRadius + ((seed % 21) - 10) / 200f);
                 float angle  = (i * FlowerGoldenAngleDeg + (seed % 21) - 10f) * Mathf.Deg2Rad;
-                var   offset = new Vector3(Mathf.Cos(angle) * radius, 0f, Mathf.Sin(angle) * radius);
-                SpawnFieldProp(parent, tileHeight, offset, seed);
+                positions[i] = new Vector3(Mathf.Cos(angle) * radius, tileHeight + 0.02f, Mathf.Sin(angle) * radius);
+                seeds[i]     = seed;
             }
+            SpawnFlowerBillboards(parent, type, positions, seeds);
         }
 
         // 川の2辺を探してベジェ川岸ラインを生成（パーティクルなし、プレビュー用）
@@ -629,150 +632,159 @@ namespace ElfVillage.Tiles
         private const float FlowerGoldenAngleDeg = 137.50776f;
         private const float FlowerMaxRadius      = 1.5f; // 花は木より footprint が小さいのでより外側まで使う
 
+        // 花畑タイルはピクミンブルーム方式: 地面テクスチャ（TileType.groundTexture）に
+        // 花畑の密な模様を描いておき、その上に Billboard を propCount 枚だけ「点在」させて
+        // 花が沢山あるように錯覚させる。以前の草・低い植物・花・小石の大量プロップ配置は廃止。
         private void SpawnFlowers(TileType type, Transform parent)
         {
-            // propCount を上限として扱い、実際の本数はタイルごとに上限〜上限の半分の範囲でランダムに決める
-            // （coordベースの疑似乱数のため再現性あり・Random.seed 不要）
-            int maxCount   = Mathf.Max(1, type.propCount);
-            int minCount   = Mathf.Max(1, maxCount / 2);
-            int countSeed  = Mathf.Abs(Data.coord.q * 92821 + Data.coord.r * 68917);
-            int count      = minCount + countSeed % (maxCount - minCount + 1);
-
+            int count = Mathf.Max(1, type.propCount);
             float baseRotation = Data.coord.q * 23f + Data.coord.r * 37f; // タイルごとに向きをずらす
+
+            var positions = new Vector3[count];
+            var seeds     = new int[count];
             for (int i = 0; i < count; i++)
             {
-                // coord ベースの擬似乱数で花の位置・色を決定（再現性あり）
+                // coord ベースの擬似乱数で位置を決定（再現性あり）
                 int   seed   = Data.coord.q * 31 + Data.coord.r * 17 + i * 7;
                 float rNorm  = count > 1 ? Mathf.Sqrt((i + 0.5f) / count) : 0f;
                 float radius = Mathf.Max(0f, rNorm * FlowerMaxRadius + ((seed % 21) - 10) / 200f);
                 float angle  = (i * FlowerGoldenAngleDeg + baseRotation + (seed % 21) - 10f) * Mathf.Deg2Rad;
-                var   offset = new Vector3(Mathf.Cos(angle) * radius, 0f, Mathf.Sin(angle) * radius);
-                SpawnFieldProp(parent, tileHeight, offset, seed);
+                positions[i] = new Vector3(Mathf.Cos(angle) * radius, tileHeight + 0.02f, Mathf.Sin(angle) * radius);
+                seeds[i]     = seed;
             }
+            SpawnFlowerBillboards(parent, type, positions, seeds);
         }
 
-        // ── 花畑タイルの構成比: 草・葉60% / 低い植物20% / 花15% / 小石・切り株5% ──────────
-        // 位置ごとに seed で振り分ける。実配置・プレビュー両方から呼ばれる共通ロジック。
-        private static void SpawnFieldProp(Transform parent, float tileHeight, Vector3 offset, int seed)
+        // ParticleSystem の Billboard レンダーモードでタイル1枚ぶんの花Billboardをまとめて生成する
+        // （水流パーティクルと同じ仕組み。個別GameObjectを量産しないので軽量）。
+        private static void SpawnFlowerBillboards(Transform parent, TileType type, Vector3[] positions, int[] seeds)
         {
-            int roll = ((seed % 100) + 100) % 100;
-            if (roll < 60)      SpawnGrassTuft(parent, tileHeight, offset, seed);
-            else if (roll < 80) SpawnLowPlant(parent, tileHeight, offset, seed);
-            else if (roll < 95) SpawnSingleFlower(parent, tileHeight, offset, FlowerPetalColor(seed));
-            else                SpawnStoneOrStump(parent, tileHeight, offset, seed);
-        }
+            var go = new GameObject("FlowerBillboards");
+            // worldPositionStays を false にする。true（既定）だとタイルの縮小スケール分だけ
+            // ワールドスケールを維持しようとして localScale が不正な値に補正されてしまう
+            // （橋オブジェクトで発生したのと同じ既知の不具合パターン）。
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = Vector3.zero;
+            go.transform.localRotation = Quaternion.identity;
 
-        // 🌿 草・葉っぱ: 細い葉を2〜3枚、向きと色合いを少しずつずらして束ねる
-        private static void SpawnGrassTuft(Transform parent, float tileHeight, Vector3 offset, int seed)
-        {
-            float ground     = tileHeight + 0.01f;
-            int   bladeCount = 2 + seed % 2; // 2〜3枚
-            for (int b = 0; b < bladeCount; b++)
+            var ps = go.AddComponent<ParticleSystem>();
+            ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+
+            var main = ps.main;
+            main.loop             = false;
+            main.duration         = 1f;
+            main.maxParticles     = Mathf.Max(1, positions.Length);
+            main.startSpeed       = new ParticleSystem.MinMaxCurve(0f);
+            main.startSize3D      = false;
+            main.simulationSpace  = ParticleSystemSimulationSpace.Local;
+            main.gravityModifier  = new ParticleSystem.MinMaxCurve(0f);
+            main.startLifetime    = new ParticleSystem.MinMaxCurve(100000f); // 実質消えない静的表示
+
+            var emission = ps.emission;
+            emission.enabled = false; // 手動 Emit のみで配置する
+
+            var shape = ps.shape;
+            shape.enabled = false;
+
+            var renderer = ps.GetComponent<ParticleSystemRenderer>();
+            // 水パーティクルと同じ HorizontalBillboard（水平面のみカメラ追従、傾かない）にする。
+            // 全軸追従の Billboard は、スクリーンショット用カメラの位置とパーティクルが
+            // 実際に向いているカメラの角度がずれた際に板が真横を向き、
+            // 縦に伸びた棘のような表示になる不具合があった。
+            renderer.renderMode = ParticleSystemRenderMode.HorizontalBillboard;
+            var mat = GetBillboardMaterial(type);
+            if (mat != null) renderer.material = mat;
+
+            // 再生状態にしてから Emit する（Stop直後にEmitすると再生開始時にクリアされることがある）
+            ps.Play();
+            for (int i = 0; i < positions.Length; i++)
             {
-                int   s    = seed + b * 53;
-                float tilt = (s % 25 - 12) * 1.0f; // -12〜12度
-                var   blade = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-                blade.transform.SetParent(parent);
-                blade.transform.localPosition = offset + new Vector3(0f, ground + 0.05f, 0f);
-                blade.transform.localRotation = Quaternion.Euler(tilt, (s * 67) % 360, 0f);
-                blade.transform.localScale    = new Vector3(0.015f, 0.05f + (s % 11) / 300f, 0.015f);
-                SetPropMaterial(blade, Color.HSVToRGB(0.30f + (s % 10) * 0.01f, 0.55f, 0.40f));
+                int seed = seeds[i];
+                var ep = new ParticleSystem.EmitParams
+                {
+                    position      = positions[i],
+                    velocity      = Vector3.zero,
+                    startSize     = 0.40f + (seed % 21) / 100f, // 0.40〜0.60（タイル縮小スケール込みで見える大きさ）
+                    rotation      = seed % 360,
+                    startLifetime = 100000f,
+                };
+                ps.Emit(ep, 1);
             }
         }
 
-        // 🌱 低い植物: 草より少し丸く低い茂み
-        private static void SpawnLowPlant(Transform parent, float tileHeight, Vector3 offset, int seed)
+        // TileType.billboardSprite が設定されていればそれを使い、空欄ならコード生成の仮スプライトを使う
+        private static Material GetBillboardMaterial(TileType type)
         {
-            float ground = tileHeight + 0.01f;
-            float size   = 0.12f + (seed % 21) / 300f; // 0.12〜0.19
+            Texture2D tex = type.billboardSprite != null ? type.billboardSprite : GetPlaceholderBillboardTexture();
+            var shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+            if (shader == null || tex == null) return null;
 
-            var bush = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            bush.transform.SetParent(parent);
-            bush.transform.localPosition = offset + new Vector3(0f, ground + size * 0.5f, 0f);
-            bush.transform.localScale    = new Vector3(size, size * 0.7f, size);
-            SetPropMaterial(bush, Color.HSVToRGB(0.27f + (seed % 8) * 0.01f, 0.60f, 0.36f));
+            var mat = new Material(shader) { name = "FlowerBillboard_Runtime" };
+            mat.SetFloat("_Surface", 1f);
+            mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            mat.SetColor("_BaseColor", Color.white);
+            mat.SetTexture("_BaseMap", tex);
+            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            return mat;
         }
 
-        // 🌼 花（茎＋花びら＋中心）。既存の見た目をそのまま static 化して実配置・プレビュー共通に使う
-        private static void SpawnSingleFlower(Transform parent, float tileHeight, Vector3 offset, Color petalColor)
+        // 仮の花Billboard画像をコードで生成してキャッシュする（実素材に差し替えるまでのフォールバック）。
+        // 5枚花びら＋中心の黄色い円を、透明背景に半透明ブレンドで描く。
+        private static Texture2D s_placeholderBillboardTex;
+
+        private static Texture2D GetPlaceholderBillboardTexture()
         {
-            float ground = tileHeight + 0.01f;
+            if (s_placeholderBillboardTex != null) return s_placeholderBillboardTex;
 
-            // 茎
-            var stem = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            stem.transform.SetParent(parent);
-            stem.transform.localPosition = offset + new Vector3(0f, ground + 0.07f, 0f);
-            stem.transform.localScale    = new Vector3(0.03f, 0.07f, 0.03f);
-            SetPropMaterial(stem, new Color(0.25f, 0.55f, 0.15f));
-
-            // 花びら（少し平たい球）
-            var petal = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            petal.transform.SetParent(parent);
-            petal.transform.localPosition = offset + new Vector3(0f, ground + 0.17f, 0f);
-            petal.transform.localScale    = new Vector3(0.16f, 0.08f, 0.16f);
-            SetPropMaterial(petal, petalColor);
-
-            // 花の中心（小さい黄色の球）
-            var center = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            center.transform.SetParent(parent);
-            center.transform.localPosition = offset + new Vector3(0f, ground + 0.19f, 0f);
-            center.transform.localScale    = new Vector3(0.07f, 0.06f, 0.07f);
-            SetPropMaterial(center, new Color(1.0f, 0.88f, 0.1f));
-        }
-
-        // 🪨 小石・切り株: 小石は控えめ（20%）、残りは切り株
-        private static void SpawnStoneOrStump(Transform parent, float tileHeight, Vector3 offset, int seed)
-        {
-            float ground = tileHeight + 0.01f;
-            // seed % 100（外側の構成比判定）と単純な四則演算で二次判定を作ると、
-            // 同じ剰余に強く相関してしまい分布が偏るため、ビットを混ぜるハッシュで独立させる
-            int   stoneRoll = Mathf.Abs(HashInt(seed)) % 100;
-            if (stoneRoll >= 20)
+            const int size = 64;
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false)
             {
-                // 切り株
-                var stump = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-                stump.transform.SetParent(parent);
-                stump.transform.localPosition = offset + new Vector3(0f, ground + 0.05f, 0f);
-                stump.transform.localScale    = new Vector3(0.10f, 0.05f, 0.10f);
-                SetPropMaterial(stump, new Color(0.45f, 0.32f, 0.20f));
-            }
-            else
-            {
-                // 小石
-                var stone = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                stone.transform.SetParent(parent);
-                stone.transform.localPosition = offset + new Vector3(0f, ground + 0.035f, 0f);
-                stone.transform.localRotation = Quaternion.Euler(0f, seed % 360, 0f);
-                stone.transform.localScale    = new Vector3(0.11f, 0.06f, 0.09f);
-                SetPropMaterial(stone, new Color(0.55f, 0.54f, 0.52f));
-            }
-        }
+                name       = "FlowerBillboard_Placeholder",
+                wrapMode   = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+            };
 
-        // 整数ハッシュ（Wang hash 風）。seed % 100 のような単純な剰余とは相関しない値を
-        // 得たいときに使う（例: 同じ seed から複数の独立した判定を作りたい場合）。
-        private static int HashInt(int x)
-        {
-            unchecked
-            {
-                x = (x ^ 61) ^ (x >> 16);
-                x += x << 3;
-                x ^= x >> 4;
-                x *= 0x27d4eb2d;
-                x ^= x >> 15;
-                return x;
-            }
-        }
+            var   pixels      = new Color[size * size];
+            var   center      = new Vector2(size * 0.5f, size * 0.5f);
+            Color petalColor  = new Color(1.0f, 0.55f, 0.75f); // ピンク
+            Color centerColor = new Color(1.0f, 0.85f, 0.15f); // 黄
+            const int petalCount  = 5;
+            float petalRadius = size * 0.28f;
+            float petalDist   = size * 0.20f;
+            float centerRadius = size * 0.14f;
 
-        // 座標ハッシュから花びらの色を決定（ピンク・白・薄紫・薄青の4色）
-        private static Color FlowerPetalColor(int seed)
-        {
-            switch (seed % 4)
+            for (int y = 0; y < size; y++)
             {
-                case 0:  return new Color(1.0f, 0.55f, 0.70f); // ピンク
-                case 1:  return new Color(0.95f, 0.95f, 0.95f); // 白
-                case 2:  return new Color(0.75f, 0.60f, 0.95f); // 薄紫
-                default: return new Color(0.60f, 0.80f, 1.00f); // 薄青
+                for (int x = 0; x < size; x++)
+                {
+                    var p = new Vector2(x + 0.5f, y + 0.5f);
+                    float alpha = 0f;
+                    Color col = petalColor;
+
+                    for (int k = 0; k < petalCount; k++)
+                    {
+                        float ang = k * (360f / petalCount) * Mathf.Deg2Rad;
+                        var petalCenter = center + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * petalDist;
+                        float d = Vector2.Distance(p, petalCenter);
+                        alpha = Mathf.Max(alpha, Mathf.Clamp01(1f - d / petalRadius));
+                    }
+
+                    float dc = Vector2.Distance(p, center);
+                    float centerA = Mathf.Clamp01(1f - dc / centerRadius);
+                    if (centerA > 0f)
+                    {
+                        col   = Color.Lerp(col, centerColor, centerA);
+                        alpha = Mathf.Max(alpha, centerA);
+                    }
+
+                    pixels[y * size + x] = new Color(col.r, col.g, col.b, alpha);
+                }
             }
+
+            tex.SetPixels(pixels);
+            tex.Apply();
+            s_placeholderBillboardTex = tex;
+            return tex;
         }
 
         private void SpawnHouse(Transform parent)
@@ -1182,7 +1194,13 @@ namespace ElfVillage.Tiles
             if (tileRenderer == null) return;
             tileRenderer.enabled = true;
             if (Data.tileType != null)
+            {
                 tileRenderer.material.color = Data.tileType.tileColor;
+                // groundTexture が設定されているタイルのみ地面に画像を貼る。未設定なら単色のまま
+                // （tileColor 塗りつぶし）で、既存タイル種別の見た目には影響しない。
+                if (Data.tileType.groundTexture != null)
+                    tileRenderer.material.mainTexture = Data.tileType.groundTexture;
+            }
             ApplyRotationVisual();
         }
 
