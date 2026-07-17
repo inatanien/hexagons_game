@@ -3,9 +3,7 @@
 
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
-using UnityEngine.InputSystem.UI;
 using UnityEngine.UI;
 using ElfVillage.Tiles;
 
@@ -23,7 +21,7 @@ namespace ElfVillage.UI
 
         private void Start()
         {
-            EnsureEventSystem();
+            // EventSystem はシーンに1つ配置済みのものを使う（このクラスでは生成しない）。
             BuildPanel();
             _panelRoot.SetActive(false);
         }
@@ -32,16 +30,6 @@ namespace ElfVillage.UI
         {
             if (Keyboard.current != null && Keyboard.current.f1Key.wasPressedThisFrame)
                 _panelRoot.SetActive(!_panelRoot.activeSelf);
-        }
-
-        // 既存シーンにUI用EventSystemが無い場合のみ、New Input System対応のものを作る
-        private void EnsureEventSystem()
-        {
-            if (FindFirstObjectByType<EventSystem>() != null) return;
-
-            var go = new GameObject("EventSystem(Debug)");
-            go.AddComponent<EventSystem>();
-            go.AddComponent<InputSystemUIInputModule>();
         }
 
         private void BuildPanel()

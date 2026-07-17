@@ -5,6 +5,7 @@
 
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using ElfVillage.Core;
 using ElfVillage.HexGrid;
@@ -48,6 +49,7 @@ namespace ElfVillage.Tiles
         // ── 入力状態 ─────────────────────────────────────────────────
         private int   _currentRotation  = 0;
         private float _leftPressTime    = -1f;
+        private bool  _leftPressStartedOnUI = false;
         private bool  _firstTilePlaced  = false;
 
         // タップ vs 長押し判定しきい値（CameraController と合わせること）
@@ -80,9 +82,38 @@ namespace ElfVillage.Tiles
 
         private void Update()
         {
+            // PauseMenu / Settings 中はタイル配置・回転・プレビューを一切行わない。
+            // ホバー状態やプレビューが直前の見た目のまま固まって残らないよう毎フレームリセットする。
+            if (GameInteractionStateController.Current != GameInteractionState.Playing)
+            {
+                ResetInteractionState();
+                return;
+            }
+
             HandleRotation();
             HandleHover();
             HandlePlacement();
+        }
+
+        // Playing 状態でなくなった際に、ホバーハイライト・プレビュー・押下中の入力を後残りさせないための後始末。
+        private void ResetInteractionState()
+        {
+            _leftPressTime        = -1f;
+            _leftPressStartedOnUI = false;
+            if (_hoveredTile != null)
+            {
+                _hoveredTile.Highlight(false);
+                _hoveredTile = null;
+            }
+            preview?.Hide();
+        }
+
+        // UI（Pause Menu・手札UI等）の上にポインタがあるかを判定する。
+        // ワールド側のレイキャストはこのチェックとは独立しているため、
+        // UI上でのクリック/ドラッグが地形操作へ貫通しないよう各所で使う。
+        private static bool IsPointerOverUI()
+        {
+            return EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
         }
 
         // ── タイル生成（無限グリッドの核心） ─────────────────────────
@@ -137,7 +168,8 @@ namespace ElfVillage.Tiles
         private void HandleRotation()
         {
             var mouse = Mouse.current;
-            if (mouse != null && mouse.rightButton.wasPressedThisFrame)
+            // 右クリックはUI上でのクリックなら回転扱いにしない（単発クリックなのでその場で判定すればよい）
+            if (mouse != null && mouse.rightButton.wasPressedThisFrame && !IsPointerOverUI())
                 _currentRotation = (_currentRotation + 1) % 6;
 
             var keyboard = Keyboard.current;
@@ -150,6 +182,18 @@ namespace ElfVillage.Tiles
             if (_mainCamera == null) return;
             var mouse = Mouse.current;
             if (mouse == null) return;
+
+            // UI上にポインタがある間はワールド側のホバー判定・プレビューを行わない
+            if (IsPointerOverUI())
+            {
+                if (_hoveredTile != null)
+                {
+                    _hoveredTile.Highlight(false);
+                    _hoveredTile = null;
+                }
+                preview?.Hide();
+                return;
+            }
 
             Ray     ray = _mainCamera.ScreenPointToRay(mouse.position.ReadValue());
             HexTile hit = RaycastTile(ray);
@@ -188,10 +232,14 @@ namespace ElfVillage.Tiles
             if (mouse == null) return;
 
             if (mouse.leftButton.wasPressedThisFrame)
-                _leftPressTime = Time.time;
+            {
+                _leftPressTime        = Time.time;
+                _leftPressStartedOnUI = IsPointerOverUI();
+            }
 
             if (!mouse.leftButton.wasReleasedThisFrame) return;
-            if (_leftPressTime < 0f || Time.time - _leftPressTime >= PlaceTapThreshold)
+            bool startedOnUI = _leftPressStartedOnUI;
+            if (_leftPressTime < 0f || Time.time - _leftPressTime >= PlaceTapThreshold || startedOnUI)
             {
                 _leftPressTime = -1f;
                 return;

@@ -2,6 +2,7 @@
 //       左ドラッグ（タイル外）でパン、ホイールでズーム、中ドラッグ・Q/Eで回転。
 
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 
 namespace ElfVillage.Core
@@ -46,6 +47,10 @@ namespace ElfVillage.Core
         // パン用
         private bool  _isPanning;
         private float _panPressTime = -1f;
+        private bool  _panDragStartedOnUI;
+
+        // 中ドラッグ（オービット）がUI上で始まったか
+        private bool _orbitDragStartedOnUI;
 
         // タップ vs 長押し判定しきい値（HexGridManager と合わせること）
         private const float PanHoldThreshold = 0.2f;
@@ -109,12 +114,23 @@ namespace ElfVillage.Core
             Vector2 delta = mousePos - _prevMousePos;
             _prevMousePos = mousePos;
 
-            HandleZoom(mouse);
-            HandlePan(mouse, delta);
-            HandleOrbitMouse(mouse, delta);
-            HandleOrbitKeyboard(keyboard);
+            // Settings中はカメラ入力を完全停止する。_prevMousePos の更新自体は上で済ませているので、
+            // 再開した瞬間に溜まっていたデルタでカメラが飛ぶことはない。
+            if (GameInteractionStateController.Current != GameInteractionState.Settings)
+            {
+                HandleZoom(mouse);
+                HandlePan(mouse, delta);
+                HandleOrbitMouse(mouse, delta);
+                HandleOrbitKeyboard(keyboard);
+            }
 
             SmoothAndApply();
+        }
+
+        // UI（Pause Menu等）の上にポインタがあるかを判定する。
+        private static bool IsPointerOverUI()
+        {
+            return EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
         }
 
         // ── ズーム（カーソル基準） ────────────────────────────────
@@ -122,6 +138,7 @@ namespace ElfVillage.Core
         {
             float scroll = mouse.scroll.ReadValue().y;
             if (Mathf.Approximately(scroll, 0f)) return;
+            if (IsPointerOverUI()) return; // UI上でのホイールはズームにしない
 
             float oldDist = _targetDistance;
             _targetDistance = Mathf.Clamp(_targetDistance - scroll * zoomSpeed, minDistance, maxDistance);
@@ -141,8 +158,9 @@ namespace ElfVillage.Core
         {
             if (mouse.leftButton.wasPressedThisFrame)
             {
-                _panPressTime = Time.time;
-                _isPanning    = false;
+                _panPressTime       = Time.time;
+                _isPanning          = false;
+                _panDragStartedOnUI = IsPointerOverUI();
             }
 
             if (!mouse.leftButton.isPressed)
@@ -151,6 +169,10 @@ namespace ElfVillage.Core
                 _panPressTime = -1f;
                 return;
             }
+
+            // UI上で開始したドラッグはボタン等の操作とみなし、途中でUI外へ出てもパンしない。
+            // 逆にUI外で始めたドラッグは、途中でUI上を横切ってもパンを継続する。
+            if (_panDragStartedOnUI) return;
 
             if (!_isPanning && _panPressTime >= 0f && Time.time - _panPressTime >= PanHoldThreshold)
                 _isPanning = true;
@@ -172,10 +194,14 @@ namespace ElfVillage.Core
         {
             // 押した瞬間だけ基準点を記録
             if (mouse.middleButton.wasPressedThisFrame)
-                _hasOrbitCenter = TryGetScreenCenterGroundPoint(out _orbitCenter);
+            {
+                _hasOrbitCenter       = TryGetScreenCenterGroundPoint(out _orbitCenter);
+                _orbitDragStartedOnUI = IsPointerOverUI();
+            }
 
             if (!mouse.middleButton.isPressed) { _hasOrbitCenter = false; return; }
             if (!_hasOrbitCenter) return;
+            if (_orbitDragStartedOnUI) return;
 
             float deltaYaw = delta.x * orbitSpeed;
             if (Mathf.Approximately(deltaYaw, 0f)) return;
