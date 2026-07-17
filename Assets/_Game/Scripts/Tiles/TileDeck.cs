@@ -26,6 +26,9 @@ namespace ElfVillage.Tiles
 
         private readonly List<TileType> _hand = new();
 
+        // 直近の抽選結果のtileCategoryを最大2件保持し、同じ種類が3連続にならないようにする
+        private readonly List<string> _recentCategories = new();
+
         public IReadOnlyList<TileType> Hand => _hand;
         public TileType Current => _hand.Count > 0 ? _hand[0] : null;
 
@@ -34,7 +37,10 @@ namespace ElfVillage.Tiles
         private void Start()
         {
             if (firstTileOverride != null)
+            {
                 _hand.Add(firstTileOverride);
+                RecordCategory(firstTileOverride.tileCategory);
+            }
             while (_hand.Count < handSize)
                 DrawOne();
             OnHandChanged?.Invoke();
@@ -63,11 +69,24 @@ namespace ElfVillage.Tiles
         {
             if (entries == null || entries.Length == 0) return;
 
-            int total = 0;
-            foreach (var e in entries)
-                if (e.tileType != null && e.tileType.isActive)
-                    total += Mathf.Max(1, e.weight);
+            // 直近2回が同じtileCategoryなら、3連続を避けるためそのカテゴリを候補から除外する
+            string excludedCategory = null;
+            if (_recentCategories.Count >= 2)
+            {
+                string last  = _recentCategories[_recentCategories.Count - 1];
+                string prev  = _recentCategories[_recentCategories.Count - 2];
+                if (!string.IsNullOrEmpty(last) && last == prev)
+                    excludedCategory = last;
+            }
 
+            int total = SumWeights(excludedCategory);
+            // 除外すると候補がゼロになる場合（有効な種類がそのカテゴリしかない等）は、
+            // 手札が組めなくなる詰みを避けるため除外せず通常どおり抽選する
+            if (total == 0)
+            {
+                excludedCategory = null;
+                total = SumWeights(excludedCategory);
+            }
             if (total == 0) return; // アクティブなエントリがない
 
             int roll = Random.Range(0, total);
@@ -75,13 +94,31 @@ namespace ElfVillage.Tiles
             foreach (var e in entries)
             {
                 if (e.tileType == null || !e.tileType.isActive) continue;
+                if (e.tileType.tileCategory == excludedCategory) continue;
                 cumulative += Mathf.Max(1, e.weight);
                 if (roll < cumulative)
                 {
                     _hand.Add(e.tileType);
+                    RecordCategory(e.tileType.tileCategory);
                     return;
                 }
             }
+        }
+
+        private int SumWeights(string excludedCategory)
+        {
+            int total = 0;
+            foreach (var e in entries)
+                if (e.tileType != null && e.tileType.isActive && e.tileType.tileCategory != excludedCategory)
+                    total += Mathf.Max(1, e.weight);
+            return total;
+        }
+
+        private void RecordCategory(string category)
+        {
+            _recentCategories.Add(category);
+            if (_recentCategories.Count > 2)
+                _recentCategories.RemoveAt(0);
         }
     }
 }
