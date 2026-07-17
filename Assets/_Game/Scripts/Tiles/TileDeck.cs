@@ -20,6 +20,10 @@ namespace ElfVillage.Tiles
         [Header("手札枚数")]
         [SerializeField] private int handSize = 3;
 
+        [Header("初手固定")]
+        [Tooltip("ゲーム開始時の手札1枚目を必ずこのタイルにする。空欄なら通常どおり抽選する")]
+        [SerializeField] private TileType firstTileOverride;
+
         private readonly List<TileType> _hand = new();
 
         public IReadOnlyList<TileType> Hand => _hand;
@@ -29,6 +33,8 @@ namespace ElfVillage.Tiles
 
         private void Start()
         {
+            if (firstTileOverride != null)
+                _hand.Add(firstTileOverride);
             while (_hand.Count < handSize)
                 DrawOne();
             OnHandChanged?.Invoke();
