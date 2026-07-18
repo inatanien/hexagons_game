@@ -14,6 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   tileName: FieldGrove
   tileColor: {r: 0.76, g: 0.88, b: 0.34, a: 1}
+  previewColor: {r: 0.35, g: 0.75, b: 0.45, a: 1}
   tileCategory: Field
   groundTexture: {fileID: 2800000, guid: 6880bd8399ba4b84b9e8dd4d675fd129, type: 3}
   isActive: 1

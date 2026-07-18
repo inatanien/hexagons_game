@@ -13,12 +13,27 @@ MonoBehaviour:
   m_Name: TileType_Village
   m_EditorClassIdentifier: 
   tileName: "\u6751"
-  tileColor: {r: 0.92, g: 0.68, b: 0.28, a: 1}
+  tileColor: {r: 1, g: 1, b: 1, a: 1}
+  previewColor: {r: 0.92, g: 0.68, b: 0.28, a: 1}
   tileCategory: Village
+  groundTexture: {fileID: 2800000, guid: 03ccec239bf53db4abcc3b0aaff52bbc, type: 3}
   isActive: 1
   propType: 2
   propCount: 1
+  treeVariantPrefabs:
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  billboardSprite: {fileID: 0}
   dividerType: 0
   connectorColor: {r: 0, g: 0, b: 0, a: 0}
   connectorPrefab: {fileID: 0}
   edges: 040000000200000002000000020000000200000002000000
+  elements: []

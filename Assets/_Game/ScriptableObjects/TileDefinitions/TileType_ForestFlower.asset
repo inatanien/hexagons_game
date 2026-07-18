@@ -13,9 +13,10 @@ MonoBehaviour:
   m_Name: TileType_ForestFlower
   m_EditorClassIdentifier: 
   tileName: ForestFlower
-  tileColor: {r: 0.13, g: 0.55, b: 0.13, a: 1}
+  tileColor: {r: 1, g: 1, b: 1, a: 1}
+  previewColor: {r: 0.45, g: 0.7, b: 0.2, a: 1}
   tileCategory: Forest
-  groundTexture: {fileID: 0}
+  groundTexture: {fileID: 2800000, guid: 03ccec239bf53db4abcc3b0aaff52bbc, type: 3}
   isActive: 1
   propType: 1
   propCount: 10

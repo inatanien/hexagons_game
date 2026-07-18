@@ -41,7 +41,12 @@ namespace ElfVillage.Tiles
     {
         [Header("基本情報")]
         public string tileName     = "Unnamed";
+        [Tooltip("地面マテリアルへ乗算する色。groundTexture設定時はテクスチャに掛かる色になる")]
         public Color  tileColor    = Color.white;
+        [Tooltip("次タイル表示（HandUI）やデバッグパネルなど、UI上でタイル種別を識別するための色。\n" +
+                  "alpha=0（既定）のときはEffectivePreviewColorがtileColorへ自動フォールバックする。\n" +
+                  "地面の見た目（tileColor/groundTexture）とは責務が別なので、こちらは常にUI識別専用として扱うこと。")]
+        public Color  previewColor = new Color(0f, 0f, 0f, 0f);
         [Tooltip("同一カテゴリのタイル同士を接続扱いにする（例: \"River\", \"Forest\"）。空欄は同一 SO のみ接続")]
         public string tileCategory = "";
         [Tooltip("地面に貼るテクスチャ（空欄可）。設定すると tileColor の単色塗りの代わりにこの画像を表示する。\n" +
@@ -87,6 +92,14 @@ namespace ElfVillage.Tiles
             int d = ((direction % 6) + 6) % 6;
             return edges[d];
         }
+
+        /// <summary>
+        /// UI識別用の実効色。previewColorが設定済み（alpha>0）ならそれを、
+        /// 未設定（alpha=0、既定値）ならtileColorを返す。OnValidateでの自動コピーは行わない
+        /// （アセットを開いただけでDirtyになる・Git差分が不透明になるのを避けるため）。
+        /// connectorColorのalpha=0フォールバックと同じ考え方。
+        /// </summary>
+        public Color EffectivePreviewColor => previewColor.a > 0f ? previewColor : tileColor;
 
         // ── 有効カテゴリ取得（elements優先・legacyフォールバック） ───────────
 

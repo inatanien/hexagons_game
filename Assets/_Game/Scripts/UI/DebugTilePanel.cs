@@ -82,14 +82,14 @@ namespace ElfVillage.UI
             rect.sizeDelta = new Vector2(150f, 32f);
 
             var img = go.AddComponent<Image>();
-            img.color = type.tileColor;
+            img.color = type.EffectivePreviewColor;
             _buttonImages.Add(img);
-            _buttonBaseColors[img] = type.tileColor;
+            _buttonBaseColors[img] = type.EffectivePreviewColor;
 
             var btn = go.AddComponent<Button>();
             btn.onClick.AddListener(() => SelectType(type, img));
 
-            var label = CreateLabel(go.transform, type.tileName, 14, ReadableTextColor(type.tileColor));
+            var label = CreateLabel(go.transform, type.tileName, 14, ReadableTextColor(type.EffectivePreviewColor));
             var labelRect = label.GetComponent<RectTransform>();
             labelRect.anchorMin = Vector2.zero;
             labelRect.anchorMax = Vector2.one;

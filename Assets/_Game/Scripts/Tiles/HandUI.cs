@@ -57,7 +57,7 @@ namespace ElfVillage.Tiles
             bool hasCard = index < hand.Count && hand[index] != null;
             root.SetActive(hasCard);
             if (!hasCard) return;
-            if (patch != null) patch.color = hand[index].tileColor;
+            if (patch != null) patch.color = hand[index].EffectivePreviewColor;
             if (label != null) label.text  = hand[index].tileName;
         }
     }
