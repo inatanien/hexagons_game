@@ -92,5 +92,69 @@ namespace ElfVillage.Tiles
             }
             return result;
         }
+
+        // ── 方向ベースの接続判定API（TileType.elements対応の下準備） ──────────
+        // まだ本番処理（HexGridManager等）からは呼ばれない。次セッションでの
+        // 接続判定の一元化に備え、重複ロジックを避けるための土台として用意する。
+
+        private const int DirectionCount = 6;
+
+        /// <summary>指定方向の反対方向を返す（0〜5に正規化）。</summary>
+        public static int GetOppositeDirection(int direction)
+        {
+            int normalized = ((direction % DirectionCount) + DirectionCount) % DirectionCount;
+            return (normalized + DirectionCount / 2) % DirectionCount;
+        }
+
+        /// <summary>
+        /// 指定方向のEdgeTypeを安全に取得する。tileTypeがnull、edgesが未設定、
+        /// directionが範囲外の場合はfalseを返す（例外を投げない）。
+        /// </summary>
+        public static bool TryGetEdgeType(TileType tileType, int direction, out EdgeType edgeType)
+        {
+            edgeType = EdgeType.None;
+            if (tileType == null) return false;
+            if (tileType.edges == null) return false;
+            if (direction < 0 || direction >= DirectionCount) return false;
+            if (direction >= tileType.edges.Length) return false;
+
+            edgeType = tileType.edges[direction];
+            return true;
+        }
+
+        /// <summary>
+        /// sourceのsourceDirection側の辺と、neighborの反対方向側の辺が
+        /// 同じ非None EdgeTypeで一致しているかを判定する。None同士は一致として扱わない。
+        /// </summary>
+        public static bool AreEdgesCompatible(TileType source, int sourceDirection, TileType neighbor)
+        {
+            if (!TryGetEdgeType(source, sourceDirection, out EdgeType sourceEdge)) return false;
+            if (sourceEdge == EdgeType.None) return false;
+
+            int neighborDirection = GetOppositeDirection(sourceDirection);
+            if (!TryGetEdgeType(neighbor, neighborDirection, out EdgeType neighborEdge)) return false;
+
+            return sourceEdge == neighborEdge;
+        }
+
+        /// <summary>
+        /// sourceDirection方向で辺が一致する場合、その辺が属するTileCategoryを返す。
+        /// 辺が一致しない場合、またはEdgeTypeに対応するTileCategoryが存在しない
+        /// （Villageのように辺を持たないカテゴリ）場合はfalseを返す。
+        /// TileType.elements/variantの設定有無に関わらず、edgesのみを情報源として判定する。
+        /// </summary>
+        public static bool TryGetConnectedCategory(
+            TileType source, int sourceDirection, TileType neighbor, out TileCategory category)
+        {
+            category = default;
+            if (!AreEdgesCompatible(source, sourceDirection, neighbor)) return false;
+            if (!TryGetEdgeType(source, sourceDirection, out EdgeType matchedEdge)) return false;
+
+            var mapped = TileCategoryMapping.FromEdgeType(matchedEdge);
+            if (!mapped.HasValue) return false;
+
+            category = mapped.Value;
+            return true;
+        }
     }
 }
