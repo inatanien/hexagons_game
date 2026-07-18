@@ -13,6 +13,12 @@ namespace ElfVillage.Tiles
         [Range(0f, 1f)]
         [Tooltip("このタイル内でこの要素が占める比重。プロップ数の配分等に使用")]
         public float areaWeight = 0.5f;
+        [Tooltip("有効にすると、この要素は見た目の生成にのみ使用され、接続・デッキカテゴリ判定などの" +
+                  "ゲームプレイには参加しません。\n" +
+                  "・false（既定）：Gameplay参加。接続・TileDeckのカテゴリ判定等に使われる\n" +
+                  "・true：見た目専用。プロップは生成されるが、接続・カテゴリ判定からは除外される\n" +
+                  "既存アセットとの後方互換のため既定値はfalse（Gameplay参加）にしてある。")]
+        public bool visualOnly = false;
 
         /// <summary>
         /// variant未設定の場合はnullを返す。TileCategoryのdefault値（Forest）への

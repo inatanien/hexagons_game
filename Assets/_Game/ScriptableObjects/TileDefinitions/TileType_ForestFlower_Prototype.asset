@@ -38,5 +38,7 @@ MonoBehaviour:
   elements:
   - variant: {fileID: 11400000, guid: 9f1c55b34dc640640a5fef133c62478f, type: 2}
     areaWeight: 0.6
+    visualOnly: 0
   - variant: {fileID: 11400000, guid: 08538ebbab91f5b4ab48a29546aac692, type: 2}
     areaWeight: 0.4
+    visualOnly: 1

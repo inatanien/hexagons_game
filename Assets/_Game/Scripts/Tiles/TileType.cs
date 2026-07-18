@@ -90,7 +90,8 @@ namespace ElfVillage.Tiles
 
         // ── 有効カテゴリ取得（elements優先・legacyフォールバック） ───────────
 
-        /// <summary>elements[]のうちvariantが設定されている項目のみを返す（無効要素は無視する）。</summary>
+        /// <summary>elements[]のうちvariantが設定されている項目のみを返す（無効要素は無視する）。
+        /// VisualOnly要素も含む「見た目生成用」の全要素。HexTileのプロップ生成が参照する。</summary>
         public IEnumerable<TileElement> EffectiveElements
         {
             get
@@ -102,10 +103,22 @@ namespace ElfVillage.Tiles
             }
         }
 
+        /// <summary>EffectiveElementsのうち、visualOnlyではない（ゲームプレイに参加する）要素のみを返す。
+        /// 接続判定・TileDeckのカテゴリ判定など、ゲームルールに関わる用途はこちらを使う。</summary>
+        public IEnumerable<TileElement> GameplayElements
+        {
+            get
+            {
+                foreach (var e in EffectiveElements)
+                    if (!e.visualOnly)
+                        yield return e;
+            }
+        }
+
         /// <summary>
-        /// このタイルが持つ有効なカテゴリ集合を重複なく返す。
+        /// このタイルが持つゲームプレイ上のカテゴリ集合を重複なく返す（VisualOnly要素のカテゴリは含まない）。
         /// elements[]に有効な要素が1件以上あればそれを情報源とし、legacyへはフォールバックしない
-        /// （一部の要素だけvariant未設定でも、有効な要素だけを使う）。
+        /// （有効要素が全てVisualOnlyの場合は空集合を返す。legacyカテゴリを誤って復活させないため）。
         /// elements[]が未設定・空・有効要素0件の場合のみ、legacyのtileCategoryへフォールバックする。
         /// legacyカテゴリが変換不能な場合は何も返さない（Forest等のdefault値へは誤変換しない）。
         /// </summary>
@@ -116,6 +129,7 @@ namespace ElfVillage.Tiles
             foreach (var e in EffectiveElements)
             {
                 anyElement = true;
+                if (e.visualOnly) continue;
                 if (seen.Add(e.variant.category))
                     yield return e.variant.category;
             }
@@ -163,10 +177,11 @@ namespace ElfVillage.Tiles
                                       "未設定のままだと有効なカテゴリとして扱われません。", this);
             }
 
-            // 有効な要素（variant設定済み）のカテゴリ一覧
+            // 有効な要素（variant設定済み）のうち、Gameplayに参加するもののカテゴリ一覧。
+            // VisualOnly要素はedges整合性チェックの対象外（見た目専用のため辺を持つ必要がない）。
             var validCategories = new List<TileCategory>();
             foreach (var e in elements)
-                if (e != null && e.variant != null)
+                if (e != null && e.variant != null && !e.visualOnly)
                     validCategories.Add(e.variant.category);
 
             // 1. 同一カテゴリの重複チェック

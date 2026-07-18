@@ -132,6 +132,22 @@ namespace ElfVillage.Tests
         }
 
         [Test]
+        public void GameplayPlusVisualOnly_BothStillGenerateProps()
+        {
+            // Session 7: visualOnly=trueでもプロップ生成（HexTile）には引き続き使われることを確認する。
+            var tile = MakeTile(HexCoord.Zero);
+            var elementsType = MakeElementsTile(
+                new TileElement { variant = MakeTreeVariant(4),   areaWeight = 0.6f, visualOnly = false },
+                new TileElement { variant = MakeFlowerVariant(4), areaWeight = 0.4f, visualOnly = true  });
+            tile.Place(elementsType, 0);
+
+            var root = FindElementPropsRoot(tile);
+            Assert.IsNotNull(root);
+            Assert.Greater(CountPrimitiveTreePairs(root), 0, "VisualOnlyでないForest要素の木は生成されるべき");
+            Assert.IsNotNull(root.Find("FlowerBillboards"), "VisualOnlyのField要素もプロップとしては生成されるべき");
+        }
+
+        [Test]
         public void NullVariantElement_Ignored()
         {
             var tile = MakeTile(HexCoord.Zero);

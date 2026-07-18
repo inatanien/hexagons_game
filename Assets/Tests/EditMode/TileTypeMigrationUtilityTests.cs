@@ -95,6 +95,7 @@ namespace ElfVillage.Tests
             Assert.AreEqual(1f, tile.elements[0].areaWeight);
             Assert.IsNotNull(tile.elements[0].variant);
             Assert.AreEqual(TileCategory.Forest, tile.elements[0].variant.category);
+            Assert.IsFalse(tile.elements[0].visualOnly, "移行ツールが作成する要素は必ずGameplay（visualOnly=false）であるべき");
         }
 
         [Test]

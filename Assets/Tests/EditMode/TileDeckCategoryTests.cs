@@ -238,5 +238,70 @@ namespace ElfVillage.Tests
                 Assert.LessOrEqual(maxRun, 2, $"{category} が3連続してはならない");
             }
         }
+
+        // ── visualOnly（Session 7） ───────────────────────────────────
+
+        private static TileType MakeForestGameplayFieldVisualOnlyTile()
+        {
+            var forestVariant = ScriptableObject.CreateInstance<TerrainVariantDefinition>();
+            forestVariant.category = TileCategory.Forest;
+            var fieldVariant = ScriptableObject.CreateInstance<TerrainVariantDefinition>();
+            fieldVariant.category = TileCategory.Field;
+
+            var t = ScriptableObject.CreateInstance<TileType>();
+            t.isActive = true;
+            t.elements = new[]
+            {
+                new TileElement { variant = forestVariant, areaWeight = 0.6f, visualOnly = false },
+                new TileElement { variant = fieldVariant,  areaWeight = 0.4f, visualOnly = true  },
+            };
+            return t;
+        }
+
+        [Test]
+        public void ForestGameplayFieldVisualOnlyTile_ParticipatesInForestExclusion_NotField()
+        {
+            var proto = MakeForestGameplayFieldVisualOnlyTile();
+
+            var deck = MakeDeck(new TileDeckEntry[0]);
+            SetRecentCategorySets(deck, Cats(TileCategory.Forest), Cats(TileCategory.Forest));
+            var excluded = InvokeGetExcludedCategories(deck);
+
+            Assert.IsTrue(InvokeIsExcluded(proto, excluded), "VisualOnlyでもForest要素はGameplayのため、Forest連続の除外対象になるべき");
+
+            SetRecentCategorySets(deck, Cats(TileCategory.Field), Cats(TileCategory.Field));
+            var excludedField = InvokeGetExcludedCategories(deck);
+            Assert.IsFalse(InvokeIsExcluded(proto, excludedField), "FieldはVisualOnlyのため、Field連続の除外判定に混入してはならない");
+        }
+
+        [Test]
+        public void DrawOne_WithVisualOnlyFieldComposite_FieldNeverCountsTowardThreeInARow()
+        {
+            var entries = new[]
+            {
+                new TileDeckEntry { tileType = MakeLegacyTile("Forest"), weight = 8 },
+                new TileDeckEntry { tileType = MakeLegacyTile("Field"),  weight = 8 },
+                new TileDeckEntry { tileType = MakeLegacyTile("River"),  weight = 8 },
+                new TileDeckEntry { tileType = MakeForestGameplayFieldVisualOnlyTile(), weight = 3 },
+            };
+            var deck = MakeDeck(entries);
+
+            const int Draws = 500;
+            for (int i = 0; i < Draws; i++)
+                InvokeDrawOne(deck);
+
+            var hand = GetHandList(deck);
+            foreach (TileCategory category in System.Enum.GetValues(typeof(TileCategory)))
+            {
+                int run = 0, maxRun = 0;
+                foreach (var tile in hand)
+                {
+                    bool has = new List<TileCategory>(tile.GetEffectiveCategories()).Contains(category);
+                    run = has ? run + 1 : 0;
+                    if (run > maxRun) maxRun = run;
+                }
+                Assert.LessOrEqual(maxRun, 2, $"{category} が3連続してはならない（VisualOnly混在時も維持）");
+            }
+        }
     }
 }
