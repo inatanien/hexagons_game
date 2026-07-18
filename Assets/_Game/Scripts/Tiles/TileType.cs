@@ -116,6 +116,24 @@ namespace ElfVillage.Tiles
             }
         }
 
+        /// <summary>
+        /// elements[]ベースの複合要素プロップ生成経路を使うタイルかどうか。
+        /// EffectiveElementsに1件以上の有効要素（variant設定済み）があるかどうかと同じ意味。
+        /// HexTile.SpawnPropsFor（実配置）とTilePropVisualBuilder（プレビュー）の両方が
+        /// legacy/elements分岐の判定にこのプロパティを使うことで、両者の分岐条件を
+        /// 完全に同じ意味に保つ（Session 11）。LINQのCount()は使わずforeachで判定する。
+        /// </summary>
+        public bool HasVisualElements
+        {
+            get
+            {
+                if (elements == null) return false;
+                foreach (var e in elements)
+                    if (e != null && e.variant != null) return true;
+                return false;
+            }
+        }
+
         /// <summary>EffectiveElementsのうち、visualOnlyではない（ゲームプレイに参加する）要素のみを返す。
         /// 接続判定・TileDeckのカテゴリ判定など、ゲームルールに関わる用途はこちらを使う。</summary>
         public IEnumerable<TileElement> GameplayElements

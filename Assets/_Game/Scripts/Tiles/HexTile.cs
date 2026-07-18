@@ -261,9 +261,12 @@ namespace ElfVillage.Tiles
             // （legacy⇔複合の切り替え時に旧プロップが残らないようにするため）。
             ClearElementProps();
 
-            var effectiveElements = new List<TileElement>(type.EffectiveElements);
-            if (effectiveElements.Count > 0)
+            // legacy/elements分岐はTileType.HasVisualElementsを判定源とする。
+            // TilePropVisualBuilder（プレビュー）も同じプロパティで判定するため、
+            // 実配置とプレビューの分岐条件は常に完全に同じ意味になる（Session 11）。
+            if (type.HasVisualElements)
             {
+                var effectiveElements = new List<TileElement>(type.EffectiveElements);
                 SpawnPropsForElements(effectiveElements, type, parent);
             }
             else
@@ -415,7 +418,8 @@ namespace ElfVillage.Tiles
             }
         }
 
-        private static float SafeWeight(float areaWeight)
+        // internal化（Session 11）: TilePropVisualBuilderからも同一の正規化ロジックを再利用するため。
+        internal static float SafeWeight(float areaWeight)
             => float.IsFinite(areaWeight) ? Mathf.Clamp01(areaWeight) : 0f;
 
         private void SpawnSingleElementProps(TerrainVariantDefinition variant, int elementPropCount,
@@ -450,7 +454,8 @@ namespace ElfVillage.Tiles
         /// 要素ごとの生成数を、variantのpropCountと正規化weightから算出する。
         /// 丸めで0になっても、propCountが1以上かつ重みが0より大きい要素は最低1個生成する。
         /// </summary>
-        private static int ComputeElementPropCount(int basePropCount, float normalizedWeight)
+        // internal化（Session 11）: TilePropVisualBuilderからも同一の生成数計算を再利用するため。
+        internal static int ComputeElementPropCount(int basePropCount, float normalizedWeight)
         {
             int count = Mathf.RoundToInt(Mathf.Max(1, basePropCount) * normalizedWeight);
             if (count <= 0 && basePropCount >= 1 && normalizedWeight > 0f) count = 1;
@@ -513,7 +518,8 @@ namespace ElfVillage.Tiles
             }
         }
 
-        private static void SpawnHouseStatic(Transform parent, float tileHeight)
+        // internal化（Session 11）: TilePropVisualBuilderの複合要素House生成からも再利用するため。
+        internal static void SpawnHouseStatic(Transform parent, float tileHeight)
         {
             float ground = tileHeight + 0.01f;
 
@@ -550,7 +556,9 @@ namespace ElfVillage.Tiles
         }
 
         // 川の2辺を探してベジェ川岸ラインを生成（パーティクルなし、プレビュー用）
-        private static void SpawnWaterPreview(TileType type, Transform parent,
+        // internal化（Session 11）: TilePropVisualBuilderの複合要素Water生成からも再利用するため
+        // （elements[]経由のWaterもelementsを無視しtypeのedgesから辺を選ぶ点は実配置と同じ）。
+        internal static void SpawnWaterPreview(TileType type, Transform parent,
                                                float outerRadius, float tileHeight)
         {
             float inRadius = outerRadius * 0.866f;
@@ -740,8 +748,9 @@ namespace ElfVillage.Tiles
 
         // 黄金角スパイラル（Vogel法）でタイル内に木をまんべんなく散らす。
         // 半径を sqrt(i/count) で増やすことで、リング状に偏らせず面積あたりの密度を均一にする。
-        private const float TreeGoldenAngleDeg = 137.50776f;
-        private const float TreeMaxRadius      = 1.35f; // タイル境界（inRadius≈1.73）から木の葉半径ぶん内側まで使う
+        // internal化（Session 11）: TilePropVisualBuilderからも同じ半径・角度定数を参照するため。
+        internal const float TreeGoldenAngleDeg = 137.50776f;
+        internal const float TreeMaxRadius      = 1.35f; // タイル境界（inRadius≈1.73）から木の葉半径ぶん内側まで使う
 
         private void SpawnTrees(TileType type, Transform parent)
         {
@@ -788,8 +797,9 @@ namespace ElfVillage.Tiles
         private static GameObject PickTreeVariant(TileType type, int seed, out int variantIndex)
             => PickTreeVariantFrom(type.treeVariantPrefabs, seed, out variantIndex);
 
-        /// <summary>TileTypeに依存しない汎用版。TerrainVariantDefinition.propPrefabs から選ぶ。</summary>
-        private static GameObject PickTreeVariantFrom(GameObject[] prefabs, int seed, out int variantIndex)
+        /// <summary>TileTypeに依存しない汎用版。TerrainVariantDefinition.propPrefabs から選ぶ。
+        /// internal化（Session 11）: TilePropVisualBuilderからも再利用するため。</summary>
+        internal static GameObject PickTreeVariantFrom(GameObject[] prefabs, int seed, out int variantIndex)
         {
             int slotCount = (prefabs != null && prefabs.Length > 0) ? prefabs.Length : 10;
             variantIndex  = seed % slotCount;
@@ -800,7 +810,9 @@ namespace ElfVillage.Tiles
         }
 
         // 黄金角スパイラル（Vogel法）の位置計算をTree/Flower・legacy/複数要素タイルで共有するヘルパー。
-        private static Vector3 ComputeSpiralOffset(int index, int count, int seed,
+        // internal化（Session 11）: TilePropVisualBuilderの単一positional要素フォールバックからも
+        // 再利用するため。
+        internal static Vector3 ComputeSpiralOffset(int index, int count, int seed,
                                                     float goldenAngleDeg, float maxRadius, float baseRotationDeg)
         {
             float rNorm  = count > 1 ? Mathf.Sqrt((index + 0.5f) / count) : 0f;
@@ -838,13 +850,22 @@ namespace ElfVillage.Tiles
         }
 
         private void SpawnSingleTreeForVariant(TerrainVariantDefinition variant, Transform parent, Vector3 offset, int seed)
+            => SpawnSingleTreeForVariantStatic(variant, parent, offset, seed, tileHeight);
+
+        /// <summary>
+        /// SpawnSingleTreeForVariantの本体。tileHeightを引数化してinstance非依存にしたもの
+        /// （Session 11）。実配置（上のインスタンスメソッド経由）とTilePropVisualBuilder
+        /// （プレビュー）の両方から呼ばれる、ロジック自体は元のまま変更していない。
+        /// </summary>
+        internal static void SpawnSingleTreeForVariantStatic(TerrainVariantDefinition variant, Transform parent,
+                                                               Vector3 offset, int seed, float tileHeight)
         {
             float ground = tileHeight + 0.01f;
             GameObject prefab = PickTreeVariantFrom(variant.propPrefabs, seed, out int variantIndex);
 
             if (prefab != null)
             {
-                var go = Instantiate(prefab, parent);
+                var go = Object.Instantiate(prefab, parent);
                 go.transform.localPosition = offset + new Vector3(0f, ground, 0f);
                 go.transform.localRotation = Quaternion.Euler(0f, seed % 360, 0f);
                 go.transform.localScale   *= 0.90f + (seed % 21) / 100f;
@@ -857,7 +878,8 @@ namespace ElfVillage.Tiles
 
         // プレハブ未設定時のフォールバック。variantIndex で葉の色相・大きさを、
         // seed で個体ごとの全体サイズをずらし、プレハブ無しでも見た目に変化を出す。
-        private static void SpawnPrimitiveTreeVariant(Transform parent, Vector3 offset, float ground,
+        // internal化（Session 11）: TilePropVisualBuilderからも再利用するため。
+        internal static void SpawnPrimitiveTreeVariant(Transform parent, Vector3 offset, float ground,
                                                         int variantIndex, int seed)
         {
             float sizeMul  = 0.85f + (seed % 31) / 100f;           // 0.85〜1.15
@@ -879,15 +901,17 @@ namespace ElfVillage.Tiles
 
         // 実モデルプレハブを Instantiate したときに、タイルへのレイキャストを妨げないよう
         // 子階層すべての Collider を除去する（SetPropMaterial のプリミティブ版と対の処理）。
-        private static void RemoveCollidersRecursive(GameObject go)
+        // internal化（Session 11）: TilePropVisualBuilderからも再利用するため。
+        internal static void RemoveCollidersRecursive(GameObject go)
         {
             foreach (var col in go.GetComponentsInChildren<Collider>())
                 Object.Destroy(col);
         }
 
         // 黄金角スパイラル（Vogel法）でタイル内に花をまんべんなく散らす（木と同じ考え方）。
-        private const float FlowerGoldenAngleDeg = 137.50776f;
-        private const float FlowerMaxRadius      = 1.5f; // 花は木より footprint が小さいのでより外側まで使う
+        // internal化（Session 11）: TilePropVisualBuilderからも同じ半径・角度定数を参照するため。
+        internal const float FlowerGoldenAngleDeg = 137.50776f;
+        internal const float FlowerMaxRadius      = 1.5f; // 花は木より footprint が小さいのでより外側まで使う
 
         // 花畑タイルはピクミンブルーム方式: 地面テクスチャ（TileType.groundTexture）に
         // 花畑の密な模様を描いておき、その上に Billboard を propCount 枚だけ「点在」させて
@@ -952,7 +976,8 @@ namespace ElfVillage.Tiles
 
         // ParticleSystem の Billboard レンダーモードでタイル1枚ぶんの花Billboardをまとめて生成する
         // （水流パーティクルと同じ仕組み。個別GameObjectを量産しないので軽量）。
-        private static void SpawnFlowerBillboards(Transform parent, Texture2D billboardSprite, Vector3[] positions, int[] seeds)
+        // internal化（Session 11）: TilePropVisualBuilderからも再利用するため。
+        internal static void SpawnFlowerBillboards(Transform parent, Texture2D billboardSprite, Vector3[] positions, int[] seeds)
         {
             var go = new GameObject("FlowerBillboards");
             // worldPositionStays を false にする。true（既定）だとタイルの縮小スケール分だけ

@@ -2,6 +2,7 @@
 //       HexGridManager から分離し、見た目の責務を単独で管理する。
 
 using UnityEngine;
+using ElfVillage.HexGrid;
 
 namespace ElfVillage.Tiles
 {
@@ -13,6 +14,9 @@ namespace ElfVillage.Tiles
         private Material     _previewMarkerMat;
         private GameObject   _dividersRoot;
         private TileType     _lastType;
+        // Session 11: 複合要素タイル（TileType.HasVisualElements）のみ、座標が変わった際に
+        // 再生成する。legacyタイルは座標に依存しない見た目のため対象外（不要な再生成を避ける）。
+        private HexCoord      _lastCoord;
 
         // 同じ tileCategory の隣接タイルがある辺を示すグロー表示（6方向ぶん）
         private readonly GameObject[] _synergyEdgeGOs = new GameObject[6];
@@ -162,13 +166,26 @@ namespace ElfVillage.Tiles
             _previewGO.transform.position = hoveredTile.transform.position + Vector3.up * 0.02f;
             _previewGO.transform.rotation = Quaternion.Euler(0f, rotation * 60f, 0f);
 
+            // 地面は実タイルと同じ「groundTexture × tileColor」を半透明化したものを表示する
+            // （Session 11）。EffectivePreviewColorはUI識別専用のためここでは使わない。
+            // groundTexture未設定時は前のTileTypeのテクスチャが残らないよう必ずnullへ戻す。
+            _previewMat.SetTexture("_BaseMap", tileType.groundTexture);
             Color tc = tileType.tileColor;
             _previewMat.SetColor("_BaseColor", new Color(tc.r, tc.g, tc.b, 0.58f));
 
-            // デッキタイルが変わったときだけビジュアル要素（分割線・プロップ）を再生成
-            if (_lastType != tileType)
+            // 再生成条件（Session 11）:
+            //  - TileTypeが変わった場合: legacy/複合の両方で再生成
+            //  - 座標だけが変わった場合: 座標シードを使う複合要素タイルだけ再生成
+            //    （legacyのSpawnPropsPreviewは座標を使わず見た目が変化しないため不要な再生成を避ける）
+            bool usesElementLayout = tileType.HasVisualElements;
+            HexCoord hoveredCoord  = hoveredTile.Data.coord;
+            bool needsRebuild = _lastType != tileType
+                             || (usesElementLayout && _lastCoord != hoveredCoord);
+
+            if (needsRebuild)
             {
-                _lastType = tileType;
+                _lastType  = tileType;
+                _lastCoord = hoveredCoord;
                 if (_dividersRoot != null) { Destroy(_dividersRoot); _dividersRoot = null; }
 
                 _dividersRoot = new GameObject("PreviewVisuals");
@@ -176,7 +193,7 @@ namespace ElfVillage.Tiles
                 _dividersRoot.transform.localPosition = Vector3.zero;
                 _dividersRoot.transform.localRotation = Quaternion.identity;
                 HexTile.SpawnDividersFor(tileType, _dividersRoot.transform);
-                HexTile.SpawnPropsPreview(tileType, _dividersRoot.transform);
+                TilePropVisualBuilder.SpawnProps(tileType, _dividersRoot.transform, hoveredCoord);
             }
         }
 
