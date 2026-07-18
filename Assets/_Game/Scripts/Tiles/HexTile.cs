@@ -291,6 +291,19 @@ namespace ElfVillage.Tiles
             }
         }
 
+        // Session 10: 要素ごとの領域割当結果1件（正規化候補から算出済みのローカルオフセット＋seed）。
+        private readonly struct PositionedSeed
+        {
+            public readonly Vector3 LocalOffset;
+            public readonly int     Seed;
+
+            public PositionedSeed(Vector3 localOffset, int seed)
+            {
+                LocalOffset = localOffset;
+                Seed        = seed;
+            }
+        }
+
         private void SpawnPropsForElements(List<TileElement> elements, TileType type, Transform parent)
         {
             _elementPropsRoot = new GameObject("ElementProps");
@@ -304,20 +317,47 @@ namespace ElfVillage.Tiles
             foreach (var e in elements) weightSum += SafeWeight(e.areaWeight);
             bool useEqualSplit = weightSum <= 0f;
 
+            // 生成数を全要素ぶん先に決定する（式はSession 4から不変）。
+            // Tree/Flowerのみが「位置を持つ」要素として領域割当の対象になる
+            // （House/Waterはpropcount・座標という概念自体を使わないため対象外のまま）。
+            var counts       = new int[elements.Count];
+            var isPositional = new bool[elements.Count];
+            int positionalCount = 0;
+            int totalPositional = 0;
             for (int i = 0; i < elements.Count; i++)
             {
-                var variant = elements[i].variant; // EffectiveElementsで既にnullでないことは保証済み
+                var v = elements[i].variant;
+                if (v == null) continue;
+                bool positional = v.propType == TilePropType.Tree || v.propType == TilePropType.Flower;
+                isPositional[i] = positional;
+                if (!positional) continue;
+
                 float normalizedWeight = useEqualSplit
                     ? 1f / elements.Count
                     : SafeWeight(elements[i].areaWeight) / weightSum;
+                counts[i] = ComputeElementPropCount(v.propCount, normalizedWeight);
+                totalPositional += counts[i];
+                positionalCount++;
+            }
 
-                // 各要素の螺旋配置の開始角をずらし、同一点への完全な重複をできる範囲で避ける
-                // （厳密な領域分割ではなく、単純な位相オフセットのみ）。
+            // 要素ごとの事前割当（Tree/Flowerが2つ以上ある場合のみ算出、それ以外はnullのまま
+            // ＝下流で従来どおりComputeSpiralOffsetベースの生成にフォールバックする）。
+            var perElementAssignment = new PositionedSeed[elements.Count][];
+            if (positionalCount >= 2 && totalPositional > 0)
+            {
+                ComputeRegionAssignment(elements, isPositional, counts, positionalCount, totalPositional, type, perElementAssignment);
+            }
+
+            for (int i = 0; i < elements.Count; i++)
+            {
+                var variant = elements[i].variant; // EffectiveElementsで既にnullでないことは保証済み
+
+                // 単一/非対象要素向けのフォールバック角度オフセット（Session 4からの既存式）。
                 float angleOffsetDeg = i * (360f / elements.Count);
 
                 try
                 {
-                    SpawnSingleElementProps(variant, normalizedWeight, angleOffsetDeg, type, parent);
+                    SpawnSingleElementProps(variant, counts[i], angleOffsetDeg, perElementAssignment[i], type, parent);
                 }
                 catch (System.Exception ex)
                 {
@@ -327,20 +367,67 @@ namespace ElfVillage.Tiles
             }
         }
 
+        // Tree/Flower要素が2つ以上ある場合に、正規化候補の生成→スコア算出→ソート→区間割当
+        // までを行い、要素ごとのPositionedSeed[]をresultへ書き込む（ElementRegionLayoutは純粋関数のみ）。
+        private void ComputeRegionAssignment(
+            List<TileElement> elements, bool[] isPositional, int[] counts,
+            int positionalCount, int totalPositional, TileType type,
+            PositionedSeed[][] result)
+        {
+            int   typeHash      = ElementRegionLayout.StableStringHash(type.name);
+            float boundaryDeg   = ElementRegionLayout.ComputeBoundaryDirectionDeg(Data.coord.q, Data.coord.r, typeHash);
+            float baseRotation  = Data.coord.q * 23f + Data.coord.r * 37f;
+
+            var candidates = ElementRegionLayout.GenerateNormalizedCandidates(
+                totalPositional, Data.coord.q, Data.coord.r, typeHash, TreeGoldenAngleDeg, baseRotation);
+            var scores = ElementRegionLayout.ComputeScores(
+                candidates, boundaryDeg, Data.coord.q, Data.coord.r, typeHash);
+            var sortedIndices = ElementRegionLayout.SortIndicesByScore(scores);
+
+            var positionalCounts  = new int[positionalCount];
+            var positionalIndices = new int[positionalCount];
+            int pi = 0;
+            for (int i = 0; i < elements.Count; i++)
+            {
+                if (!isPositional[i]) continue;
+                positionalCounts[pi]  = counts[i];
+                positionalIndices[pi] = i;
+                pi++;
+            }
+
+            var partitioned = ElementRegionLayout.PartitionByCounts(sortedIndices, positionalCounts);
+
+            for (int p = 0; p < positionalIndices.Length; p++)
+            {
+                int elementIndex = positionalIndices[p];
+                var variant      = elements[elementIndex].variant;
+                float maxRadius  = variant.propType == TilePropType.Tree ? TreeMaxRadius : FlowerMaxRadius;
+
+                var chunk = partitioned[p];
+                var seeds = new PositionedSeed[chunk.Length];
+                for (int k = 0; k < chunk.Length; k++)
+                {
+                    var cand   = candidates[chunk[k]];
+                    var offset = new Vector3(cand.NormX * maxRadius, 0f, cand.NormZ * maxRadius);
+                    seeds[k]   = new PositionedSeed(offset, cand.Seed);
+                }
+                result[elementIndex] = seeds;
+            }
+        }
+
         private static float SafeWeight(float areaWeight)
             => float.IsFinite(areaWeight) ? Mathf.Clamp01(areaWeight) : 0f;
 
-        private void SpawnSingleElementProps(TerrainVariantDefinition variant, float normalizedWeight,
-                                              float angleOffsetDeg, TileType type, Transform originalParent)
+        private void SpawnSingleElementProps(TerrainVariantDefinition variant, int elementPropCount,
+                                              float angleOffsetDeg, PositionedSeed[] precomputed,
+                                              TileType type, Transform originalParent)
         {
             if (variant == null) return; // 念のための安全策（EffectiveElements側で既に除外されているはず）
-
-            int elementPropCount = ComputeElementPropCount(variant.propCount, normalizedWeight);
 
             switch (variant.propType)
             {
                 case TilePropType.Tree:
-                    SpawnTreesForVariant(variant, elementPropCount, angleOffsetDeg, _elementPropsRoot.transform);
+                    SpawnTreesForVariant(variant, elementPropCount, angleOffsetDeg, precomputed, _elementPropsRoot.transform);
                     break;
                 case TilePropType.House:
                     // SpawnHouseはpropCountを使わない単一形状のため、要素ごとに1棟だけ生成する
@@ -348,7 +435,7 @@ namespace ElfVillage.Tiles
                     SpawnHouse(_elementPropsRoot.transform);
                     break;
                 case TilePropType.Flower:
-                    SpawnFlowersForVariant(variant, elementPropCount, angleOffsetDeg, _elementPropsRoot.transform);
+                    SpawnFlowersForVariant(variant, elementPropCount, angleOffsetDeg, precomputed, _elementPropsRoot.transform);
                     break;
                 case TilePropType.Water:
                     // WaterPSはtransform直下の子として存在する必要がある
@@ -725,10 +812,20 @@ namespace ElfVillage.Tiles
         /// <summary>
         /// TileType.propType/propCount/treeVariantPrefabsではなく、TerrainVariantDefinition側の
         /// 値を情報源として木を生成する（複数要素タイル用）。位置計算のロジックはSpawnTreesと共通。
+        /// precomputed（Session 10の領域割当結果）が渡された場合はそちらの位置をそのまま使う。
+        /// nullまたは空の場合は既存のComputeSpiralOffsetベースの生成にフォールバックする
+        /// （Tree/Flower要素が1つしかない複合タイル・従来挙動の完全維持のため）。
         /// </summary>
         private void SpawnTreesForVariant(TerrainVariantDefinition variant, int propCount,
-                                           float angleOffsetDeg, Transform parent)
+                                           float angleOffsetDeg, PositionedSeed[] precomputed, Transform parent)
         {
+            if (precomputed != null && precomputed.Length > 0)
+            {
+                for (int i = 0; i < precomputed.Length; i++)
+                    SpawnSingleTreeForVariant(variant, parent, precomputed[i].LocalOffset, precomputed[i].Seed);
+                return;
+            }
+
             int count = Mathf.Max(1, propCount);
             float baseRotation = Data.coord.q * 23f + Data.coord.r * 37f + angleOffsetDeg;
             for (int i = 0; i < count; i++)
@@ -819,9 +916,25 @@ namespace ElfVillage.Tiles
         /// TileType.propType/propCount/billboardSpriteではなく、TerrainVariantDefinition側の
         /// 値を情報源として花Billboardを生成する（複数要素タイル用）。位置計算のロジックはSpawnFlowersと共通。
         /// </summary>
+        // precomputed（Session 10の領域割当結果）が渡された場合はそちらの位置をそのまま使う。
+        // nullまたは空の場合は既存のComputeSpiralOffsetベースの生成にフォールバックする
+        // （Tree/Flower要素が1つしかない複合タイル・従来挙動の完全維持のため）。
         private void SpawnFlowersForVariant(TerrainVariantDefinition variant, int propCount,
-                                             float angleOffsetDeg, Transform parent)
+                                             float angleOffsetDeg, PositionedSeed[] precomputed, Transform parent)
         {
+            if (precomputed != null && precomputed.Length > 0)
+            {
+                var precomputedPositions = new Vector3[precomputed.Length];
+                var precomputedSeeds     = new int[precomputed.Length];
+                for (int i = 0; i < precomputed.Length; i++)
+                {
+                    precomputedPositions[i] = precomputed[i].LocalOffset + new Vector3(0f, tileHeight + 0.02f, 0f);
+                    precomputedSeeds[i]     = precomputed[i].Seed;
+                }
+                SpawnFlowerBillboards(parent, variant.billboardSprite, precomputedPositions, precomputedSeeds);
+                return;
+            }
+
             int count = Mathf.Max(1, propCount);
             float baseRotation = Data.coord.q * 23f + Data.coord.r * 37f + angleOffsetDeg;
 
