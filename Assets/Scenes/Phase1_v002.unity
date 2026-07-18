@@ -4331,6 +4331,10 @@ MonoBehaviour:
     weight: 2
   - tileType: {fileID: 11400000, guid: 10975d3421b6f6e418872f40643dfe4b, type: 2}
     weight: 3
+  - tileType: {fileID: 11400000, guid: 31fe4b00b0cd26b46aef81a2f63ce4ee, type: 2}
+    weight: 2
+  - tileType: {fileID: 11400000, guid: 23077f99a4e29cd41aea53f124117c3a, type: 2}
+    weight: 2
   handSize: 3
   firstTileOverride: {fileID: 11400000, guid: e3fc723b1d653774299fd4efd81b82a1, type: 2}
 --- !u!4 &1130174952

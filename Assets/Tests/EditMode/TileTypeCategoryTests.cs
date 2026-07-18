@@ -251,5 +251,23 @@ namespace ElfVillage.Tests
 
             LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex(".*Field.*edges.*"));
         }
+
+        // Gameplay/VisualOnlyの役割がFieldとForestを入れ替えても対称に成立することを確認する
+        // （Session 9: FieldGrove想定の組み合わせ）。
+        [Test]
+        public void GetEffectiveCategories_FieldGameplayForestVisualOnly_ReturnsFieldOnly()
+        {
+            var tile = ScriptableObject.CreateInstance<TileType>();
+            tile.elements = new[]
+            {
+                new TileElement { variant = MakeVariant(TileCategory.Field),  visualOnly = false },
+                new TileElement { variant = MakeVariant(TileCategory.Forest), visualOnly = true },
+            };
+
+            var cats = new List<TileCategory>(tile.GetEffectiveCategories());
+            Assert.AreEqual(1, cats.Count);
+            Assert.AreEqual(TileCategory.Field, cats[0]);
+            Assert.IsFalse(tile.HasCategory(TileCategory.Forest), "VisualOnlyのForestはFieldGrove型タイルの3連続防止に参加しない");
+        }
     }
 }
