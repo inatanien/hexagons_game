@@ -88,6 +88,68 @@ namespace ElfVillage.Tiles
             return edges[d];
         }
 
+        // ── 有効カテゴリ取得（elements優先・legacyフォールバック） ───────────
+
+        /// <summary>elements[]のうちvariantが設定されている項目のみを返す（無効要素は無視する）。</summary>
+        public IEnumerable<TileElement> EffectiveElements
+        {
+            get
+            {
+                if (elements == null) yield break;
+                foreach (var e in elements)
+                    if (e != null && e.variant != null)
+                        yield return e;
+            }
+        }
+
+        /// <summary>
+        /// このタイルが持つ有効なカテゴリ集合を重複なく返す。
+        /// elements[]に有効な要素が1件以上あればそれを情報源とし、legacyへはフォールバックしない
+        /// （一部の要素だけvariant未設定でも、有効な要素だけを使う）。
+        /// elements[]が未設定・空・有効要素0件の場合のみ、legacyのtileCategoryへフォールバックする。
+        /// legacyカテゴリが変換不能な場合は何も返さない（Forest等のdefault値へは誤変換しない）。
+        /// </summary>
+        public IEnumerable<TileCategory> GetEffectiveCategories()
+        {
+            var seen = new HashSet<TileCategory>();
+            bool anyElement = false;
+            foreach (var e in EffectiveElements)
+            {
+                anyElement = true;
+                if (seen.Add(e.variant.category))
+                    yield return e.variant.category;
+            }
+            if (anyElement) yield break;
+
+            if (TryGetLegacyCategory(out TileCategory legacy))
+                yield return legacy;
+        }
+
+        /// <summary>指定カテゴリを（elements優先・legacyフォールバック込みで）持っているか判定する。</summary>
+        public bool HasCategory(TileCategory category)
+        {
+            foreach (var c in GetEffectiveCategories())
+                if (c == category) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// legacyのtileCategory（string）をTileCategoryへ変換する。空文字列や、
+        /// TileCategoryのいずれの名前とも一致しない場合はfalseを返し、
+        /// categoryへdefault値（Forest等）を誤って設定しない。
+        /// </summary>
+        public bool TryGetLegacyCategory(out TileCategory category)
+        {
+            if (!string.IsNullOrEmpty(tileCategory)
+                && System.Enum.TryParse(tileCategory, true, out TileCategory parsed))
+            {
+                category = parsed;
+                return true;
+            }
+            category = default;
+            return false;
+        }
+
         // edges[]とelements[]の整合性をチェックするだけの警告群。データの自動修正・保存ブロックは行わない。
         // elementsが未設定（null/空）のlegacy TileTypeは対象外（既存アセットに警告を出さないため）。
         private void OnValidate()

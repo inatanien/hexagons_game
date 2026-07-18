@@ -26,8 +26,9 @@ namespace ElfVillage.Tiles
 
         private readonly List<TileType> _hand = new();
 
-        // 直近の抽選結果のtileCategoryを最大2件保持し、同じ種類が3連続にならないようにする
-        private readonly List<string> _recentCategories = new();
+        // 直近2回の抽選結果が持つカテゴリ集合（複合タイル対応）を保持し、
+        // 同じカテゴリが3連続にならないようにする
+        private readonly List<HashSet<TileCategory>> _recentCategorySets = new();
 
         public IReadOnlyList<TileType> Hand => _hand;
         public TileType Current => _hand.Count > 0 ? _hand[0] : null;
@@ -39,7 +40,7 @@ namespace ElfVillage.Tiles
             if (firstTileOverride != null)
             {
                 _hand.Add(firstTileOverride);
-                RecordCategory(firstTileOverride.tileCategory);
+                RecordCategories(firstTileOverride);
             }
             while (_hand.Count < handSize)
                 DrawOne();
@@ -69,23 +70,17 @@ namespace ElfVillage.Tiles
         {
             if (entries == null || entries.Length == 0) return;
 
-            // 直近2回が同じtileCategoryなら、3連続を避けるためそのカテゴリを候補から除外する
-            string excludedCategory = null;
-            if (_recentCategories.Count >= 2)
-            {
-                string last  = _recentCategories[_recentCategories.Count - 1];
-                string prev  = _recentCategories[_recentCategories.Count - 2];
-                if (!string.IsNullOrEmpty(last) && last == prev)
-                    excludedCategory = last;
-            }
+            // 直近2回のカテゴリ集合の共通部分を「3連続になり得るカテゴリ」として候補から除外する。
+            // 複合タイルは含むすべてのカテゴリを持つものとして扱う（EffectiveCategories経由）。
+            HashSet<TileCategory> excludedCategories = GetExcludedCategories();
 
-            int total = SumWeights(excludedCategory);
+            int total = SumWeights(excludedCategories);
             // 除外すると候補がゼロになる場合（有効な種類がそのカテゴリしかない等）は、
             // 手札が組めなくなる詰みを避けるため除外せず通常どおり抽選する
             if (total == 0)
             {
-                excludedCategory = null;
-                total = SumWeights(excludedCategory);
+                excludedCategories = null;
+                total = SumWeights(excludedCategories);
             }
             if (total == 0) return; // アクティブなエントリがない
 
@@ -94,31 +89,58 @@ namespace ElfVillage.Tiles
             foreach (var e in entries)
             {
                 if (e.tileType == null || !e.tileType.isActive) continue;
-                if (e.tileType.tileCategory == excludedCategory) continue;
+                if (IsExcluded(e.tileType, excludedCategories)) continue;
                 cumulative += Mathf.Max(1, e.weight);
                 if (roll < cumulative)
                 {
                     _hand.Add(e.tileType);
-                    RecordCategory(e.tileType.tileCategory);
+                    RecordCategories(e.tileType);
                     return;
                 }
             }
         }
 
-        private int SumWeights(string excludedCategory)
+        /// <summary>直近2回の抽選結果のカテゴリ集合の共通部分を返す。履歴が2件未満なら除外なし（null）。</summary>
+        private HashSet<TileCategory> GetExcludedCategories()
+        {
+            if (_recentCategorySets.Count < 2) return null;
+
+            HashSet<TileCategory> last = _recentCategorySets[_recentCategorySets.Count - 1];
+            HashSet<TileCategory> prev = _recentCategorySets[_recentCategorySets.Count - 2];
+
+            HashSet<TileCategory> intersection = null;
+            foreach (var c in last)
+            {
+                if (!prev.Contains(c)) continue;
+                intersection ??= new HashSet<TileCategory>();
+                intersection.Add(c);
+            }
+            return intersection;
+        }
+
+        /// <summary>tileTypeが持つカテゴリのいずれかがexcludedCategoriesに含まれるか判定する。</summary>
+        private static bool IsExcluded(TileType tileType, HashSet<TileCategory> excludedCategories)
+        {
+            if (excludedCategories == null || excludedCategories.Count == 0) return false;
+            foreach (var c in tileType.GetEffectiveCategories())
+                if (excludedCategories.Contains(c)) return true;
+            return false;
+        }
+
+        private int SumWeights(HashSet<TileCategory> excludedCategories)
         {
             int total = 0;
             foreach (var e in entries)
-                if (e.tileType != null && e.tileType.isActive && e.tileType.tileCategory != excludedCategory)
+                if (e.tileType != null && e.tileType.isActive && !IsExcluded(e.tileType, excludedCategories))
                     total += Mathf.Max(1, e.weight);
             return total;
         }
 
-        private void RecordCategory(string category)
+        private void RecordCategories(TileType tileType)
         {
-            _recentCategories.Add(category);
-            if (_recentCategories.Count > 2)
-                _recentCategories.RemoveAt(0);
+            _recentCategorySets.Add(new HashSet<TileCategory>(tileType.GetEffectiveCategories()));
+            if (_recentCategorySets.Count > 2)
+                _recentCategorySets.RemoveAt(0);
         }
     }
 }
