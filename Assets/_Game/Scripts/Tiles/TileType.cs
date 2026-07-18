@@ -1,6 +1,7 @@
 // 役割: タイルの種類を定義する ScriptableObject。
 //       辺の接続種別（EdgeType）と外観情報を保持し、データ駆動でタイルを追加できる。
 
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace ElfVillage.Tiles
@@ -87,15 +88,73 @@ namespace ElfVillage.Tiles
             return edges[d];
         }
 
+        // edges[]とelements[]の整合性をチェックするだけの警告群。データの自動修正・保存ブロックは行わない。
+        // elementsが未設定（null/空）のlegacy TileTypeは対象外（既存アセットに警告を出さないため）。
         private void OnValidate()
         {
-            if (elements == null) return;
+            if (elements == null || elements.Length == 0) return;
+
             for (int i = 0; i < elements.Length; i++)
             {
                 if (elements[i] != null && elements[i].variant == null)
-                    Debug.LogWarning($"[{name}] elements[{i}] に variant が設定されていません。" +
+                    Debug.LogWarning($"[TileType: {name}] elements[{i}] に variant が設定されていません。" +
                                       "未設定のままだと有効なカテゴリとして扱われません。", this);
             }
+
+            // 有効な要素（variant設定済み）のカテゴリ一覧
+            var validCategories = new List<TileCategory>();
+            foreach (var e in elements)
+                if (e != null && e.variant != null)
+                    validCategories.Add(e.variant.category);
+
+            // 1. 同一カテゴリの重複チェック
+            var seen = new HashSet<TileCategory>();
+            var duplicates = new HashSet<TileCategory>();
+            foreach (var c in validCategories)
+                if (!seen.Add(c)) duplicates.Add(c);
+            foreach (var c in duplicates)
+                Debug.LogWarning($"[TileType: {name}] elements に {c} カテゴリを持つ variant が重複しています。", this);
+
+            var validCategorySet = new HashSet<TileCategory>(validCategories);
+
+            // edges[]に登場するTileCategoryの集合
+            var edgeCategories = new HashSet<TileCategory>();
+            if (edges != null)
+            {
+                foreach (var edge in edges)
+                {
+                    var cat = TileCategoryMapping.FromEdgeType(edge);
+                    if (cat.HasValue) edgeCategories.Add(cat.Value);
+                }
+            }
+
+            // 2. edgesにあるがelementsにないカテゴリ
+            foreach (var cat in edgeCategories)
+            {
+                if (!validCategorySet.Contains(cat))
+                    Debug.LogWarning($"[TileType: {name}] elements に {cat} カテゴリがありませんが、" +
+                                      $"edges に {cat} が含まれています。", this);
+            }
+
+            // 3. elementsにあるがedgesにないカテゴリ（Villageのように対応するEdgeTypeを持たないカテゴリは対象外）
+            foreach (var cat in validCategorySet)
+            {
+                if (!CategoryHasEdgeMapping(cat)) continue;
+                if (!edgeCategories.Contains(cat))
+                    Debug.LogWarning($"[TileType: {name}] elements に {cat} カテゴリがありますが、" +
+                                      "edges に対応する辺がありません。", this);
+            }
+        }
+
+        /// <summary>このカテゴリに対応するEdgeTypeが存在するか（Villageのような要素はfalse）。</summary>
+        private static bool CategoryHasEdgeMapping(TileCategory category)
+        {
+            foreach (EdgeType edge in System.Enum.GetValues(typeof(EdgeType)))
+            {
+                var mapped = TileCategoryMapping.FromEdgeType(edge);
+                if (mapped.HasValue && mapped.Value == category) return true;
+            }
+            return false;
         }
     }
 }
