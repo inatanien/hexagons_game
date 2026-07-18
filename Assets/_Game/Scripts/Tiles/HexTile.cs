@@ -33,6 +33,13 @@ namespace ElfVillage.Tiles
         private TileType _worldType;
         private GameObject _worldPropsRoot;
 
+        // TileType.elements（複数要素タイル）から生成したプロップのルート。
+        // legacy単一要素タイルでは使わない（null のまま）。
+        // 注意: Water要素だけはこのルートの下に入らず、直接transform直下へ生成される
+        // （SpawnSingleElementProps内のTilePropType.Waterケース参照。WaterPSがtransform直下の
+        // 子である前提のGetWaterFlowDir/ReverseWaterFlowと整合させるため）。
+        private GameObject _elementPropsRoot;
+
         // 接続状態（6方向・同種タイルと隣接しているか）
         private readonly bool[] _connectedEdges = new bool[6];
 
@@ -249,14 +256,118 @@ namespace ElfVillage.Tiles
         private void SpawnPropsFor(TileType type, Transform parent)
         {
             if (type == null) return;
-            switch (type.propType)
+
+            // 直前のTileTypeが複数要素タイルだった場合の残存プロップを必ず破棄してから判定する
+            // （legacy⇔複合の切り替え時に旧プロップが残らないようにするため）。
+            ClearElementProps();
+
+            var effectiveElements = new List<TileElement>(type.EffectiveElements);
+            if (effectiveElements.Count > 0)
             {
-                case TilePropType.Tree:   SpawnTrees(type, parent);   break;
-                case TilePropType.House:  SpawnHouse(parent);         break;
-                case TilePropType.Water:  SpawnWater(type, parent);  break;
-                case TilePropType.Flower: SpawnFlowers(type, parent); break;
+                SpawnPropsForElements(effectiveElements, type, parent);
+            }
+            else
+            {
+                // ── legacy生成（既存メソッドをそのまま呼び出す。挙動は完全に維持） ──
+                switch (type.propType)
+                {
+                    case TilePropType.Tree:   SpawnTrees(type, parent);   break;
+                    case TilePropType.House:  SpawnHouse(parent);         break;
+                    case TilePropType.Water:  SpawnWater(type, parent);  break;
+                    case TilePropType.Flower: SpawnFlowers(type, parent); break;
+                }
             }
             SpawnDividers(type, parent);
+        }
+
+        // ── 複数要素タイルのプロップ生成（Session 4） ────────────────────────
+
+        private void ClearElementProps()
+        {
+            if (_elementPropsRoot != null)
+            {
+                Object.Destroy(_elementPropsRoot);
+                _elementPropsRoot = null;
+            }
+        }
+
+        private void SpawnPropsForElements(List<TileElement> elements, TileType type, Transform parent)
+        {
+            _elementPropsRoot = new GameObject("ElementProps");
+            _elementPropsRoot.transform.SetParent(parent, false);
+            _elementPropsRoot.transform.localPosition = Vector3.zero;
+            _elementPropsRoot.transform.localRotation = Quaternion.identity;
+
+            // areaWeightの合計を計算する（不正値はここで安全な範囲へクランプする）。
+            // NaN等の非数値はSafeWeightで0扱いにし、後段の正規化計算を汚染しないようにする。
+            float weightSum = 0f;
+            foreach (var e in elements) weightSum += SafeWeight(e.areaWeight);
+            bool useEqualSplit = weightSum <= 0f;
+
+            for (int i = 0; i < elements.Count; i++)
+            {
+                var variant = elements[i].variant; // EffectiveElementsで既にnullでないことは保証済み
+                float normalizedWeight = useEqualSplit
+                    ? 1f / elements.Count
+                    : SafeWeight(elements[i].areaWeight) / weightSum;
+
+                // 各要素の螺旋配置の開始角をずらし、同一点への完全な重複をできる範囲で避ける
+                // （厳密な領域分割ではなく、単純な位相オフセットのみ）。
+                float angleOffsetDeg = i * (360f / elements.Count);
+
+                try
+                {
+                    SpawnSingleElementProps(variant, normalizedWeight, angleOffsetDeg, type, parent);
+                }
+                catch (System.Exception ex)
+                {
+                    // 1要素の生成失敗が他の有効要素の生成を止めないようにする
+                    Debug.LogWarning($"[HexTile] 要素「{variant.variantName}」のプロップ生成に失敗しました: {ex.Message}", this);
+                }
+            }
+        }
+
+        private static float SafeWeight(float areaWeight)
+            => float.IsFinite(areaWeight) ? Mathf.Clamp01(areaWeight) : 0f;
+
+        private void SpawnSingleElementProps(TerrainVariantDefinition variant, float normalizedWeight,
+                                              float angleOffsetDeg, TileType type, Transform originalParent)
+        {
+            if (variant == null) return; // 念のための安全策（EffectiveElements側で既に除外されているはず）
+
+            int elementPropCount = ComputeElementPropCount(variant.propCount, normalizedWeight);
+
+            switch (variant.propType)
+            {
+                case TilePropType.Tree:
+                    SpawnTreesForVariant(variant, elementPropCount, angleOffsetDeg, _elementPropsRoot.transform);
+                    break;
+                case TilePropType.House:
+                    // SpawnHouseはpropCountを使わない単一形状のため、要素ごとに1棟だけ生成する
+                    // （既存のHouse生成に「個数」という概念が元々存在しないため、areaWeightは適用しない）。
+                    SpawnHouse(_elementPropsRoot.transform);
+                    break;
+                case TilePropType.Flower:
+                    SpawnFlowersForVariant(variant, elementPropCount, angleOffsetDeg, _elementPropsRoot.transform);
+                    break;
+                case TilePropType.Water:
+                    // WaterPSはtransform直下の子として存在する必要がある
+                    // （GetWaterFlowDir/ReverseWaterFlowが直下の子のみを探索するため）。
+                    // ラッパー(_elementPropsRoot)の下ではなく元のparentへ直接生成し、edgesはtype（タイル本体）から取得する。
+                    SpawnWater(type, originalParent);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// 要素ごとの生成数を、variantのpropCountと正規化weightから算出する。
+        /// 丸めで0になっても、propCountが1以上かつ重みが0より大きい要素は最低1個生成する。
+        /// </summary>
+        private static int ComputeElementPropCount(int basePropCount, float normalizedWeight)
+        {
+            int count = Mathf.RoundToInt(Mathf.Max(1, basePropCount) * normalizedWeight);
+            if (count <= 0 && basePropCount >= 1 && normalizedWeight > 0f) count = 1;
+            return count;
         }
 
         // ── 分割線 ───────────────────────────────────────────────────
@@ -348,7 +459,7 @@ namespace ElfVillage.Tiles
                 positions[i] = new Vector3(Mathf.Cos(angle) * radius, tileHeight + 0.02f, Mathf.Sin(angle) * radius);
                 seeds[i]     = seed;
             }
-            SpawnFlowerBillboards(parent, type, positions, seeds);
+            SpawnFlowerBillboards(parent, type.billboardSprite, positions, seeds);
         }
 
         // 川の2辺を探してベジェ川岸ラインを生成（パーティクルなし、プレビュー用）
@@ -588,14 +699,63 @@ namespace ElfVillage.Tiles
         /// 枠が空欄（未設定）の場合は null を返す（呼び出し側でプリミティブにフォールバック）。
         /// </summary>
         private static GameObject PickTreeVariant(TileType type, int seed, out int variantIndex)
+            => PickTreeVariantFrom(type.treeVariantPrefabs, seed, out variantIndex);
+
+        /// <summary>TileTypeに依存しない汎用版。TerrainVariantDefinition.propPrefabs から選ぶ。</summary>
+        private static GameObject PickTreeVariantFrom(GameObject[] prefabs, int seed, out int variantIndex)
         {
-            var prefabs   = type.treeVariantPrefabs;
             int slotCount = (prefabs != null && prefabs.Length > 0) ? prefabs.Length : 10;
             variantIndex  = seed % slotCount;
 
             if (prefabs != null && variantIndex < prefabs.Length && prefabs[variantIndex] != null)
                 return prefabs[variantIndex];
             return null;
+        }
+
+        // 黄金角スパイラル（Vogel法）の位置計算をTree/Flower・legacy/複数要素タイルで共有するヘルパー。
+        private static Vector3 ComputeSpiralOffset(int index, int count, int seed,
+                                                    float goldenAngleDeg, float maxRadius, float baseRotationDeg)
+        {
+            float rNorm  = count > 1 ? Mathf.Sqrt((index + 0.5f) / count) : 0f;
+            float radius = Mathf.Max(0f, rNorm * maxRadius + ((seed / 21) % 21 - 10) / 200f);
+            float angle  = (index * goldenAngleDeg + baseRotationDeg + (seed % 21) - 10f) * Mathf.Deg2Rad;
+            return new Vector3(Mathf.Cos(angle) * radius, 0f, Mathf.Sin(angle) * radius);
+        }
+
+        /// <summary>
+        /// TileType.propType/propCount/treeVariantPrefabsではなく、TerrainVariantDefinition側の
+        /// 値を情報源として木を生成する（複数要素タイル用）。位置計算のロジックはSpawnTreesと共通。
+        /// </summary>
+        private void SpawnTreesForVariant(TerrainVariantDefinition variant, int propCount,
+                                           float angleOffsetDeg, Transform parent)
+        {
+            int count = Mathf.Max(1, propCount);
+            float baseRotation = Data.coord.q * 23f + Data.coord.r * 37f + angleOffsetDeg;
+            for (int i = 0; i < count; i++)
+            {
+                int seed = Mathf.Abs(Data.coord.q * 92821 + Data.coord.r * 68917 + i * 40361
+                                      + Mathf.RoundToInt(angleOffsetDeg) * 131);
+                var offset = ComputeSpiralOffset(i, count, seed, TreeGoldenAngleDeg, TreeMaxRadius, baseRotation);
+                SpawnSingleTreeForVariant(variant, parent, offset, seed);
+            }
+        }
+
+        private void SpawnSingleTreeForVariant(TerrainVariantDefinition variant, Transform parent, Vector3 offset, int seed)
+        {
+            float ground = tileHeight + 0.01f;
+            GameObject prefab = PickTreeVariantFrom(variant.propPrefabs, seed, out int variantIndex);
+
+            if (prefab != null)
+            {
+                var go = Instantiate(prefab, parent);
+                go.transform.localPosition = offset + new Vector3(0f, ground, 0f);
+                go.transform.localRotation = Quaternion.Euler(0f, seed % 360, 0f);
+                go.transform.localScale   *= 0.90f + (seed % 21) / 100f;
+                RemoveCollidersRecursive(go);
+                return;
+            }
+
+            SpawnPrimitiveTreeVariant(parent, offset, ground, variantIndex, seed);
         }
 
         // プレハブ未設定時のフォールバック。variantIndex で葉の色相・大きさを、
@@ -652,12 +812,34 @@ namespace ElfVillage.Tiles
                 positions[i] = new Vector3(Mathf.Cos(angle) * radius, tileHeight + 0.02f, Mathf.Sin(angle) * radius);
                 seeds[i]     = seed;
             }
-            SpawnFlowerBillboards(parent, type, positions, seeds);
+            SpawnFlowerBillboards(parent, type.billboardSprite, positions, seeds);
+        }
+
+        /// <summary>
+        /// TileType.propType/propCount/billboardSpriteではなく、TerrainVariantDefinition側の
+        /// 値を情報源として花Billboardを生成する（複数要素タイル用）。位置計算のロジックはSpawnFlowersと共通。
+        /// </summary>
+        private void SpawnFlowersForVariant(TerrainVariantDefinition variant, int propCount,
+                                             float angleOffsetDeg, Transform parent)
+        {
+            int count = Mathf.Max(1, propCount);
+            float baseRotation = Data.coord.q * 23f + Data.coord.r * 37f + angleOffsetDeg;
+
+            var positions = new Vector3[count];
+            var seeds     = new int[count];
+            for (int i = 0; i < count; i++)
+            {
+                int seed = Data.coord.q * 31 + Data.coord.r * 17 + i * 7 + Mathf.RoundToInt(angleOffsetDeg) * 13;
+                positions[i] = ComputeSpiralOffset(i, count, seed, FlowerGoldenAngleDeg, FlowerMaxRadius, baseRotation)
+                               + new Vector3(0f, tileHeight + 0.02f, 0f);
+                seeds[i] = seed;
+            }
+            SpawnFlowerBillboards(parent, variant.billboardSprite, positions, seeds);
         }
 
         // ParticleSystem の Billboard レンダーモードでタイル1枚ぶんの花Billboardをまとめて生成する
         // （水流パーティクルと同じ仕組み。個別GameObjectを量産しないので軽量）。
-        private static void SpawnFlowerBillboards(Transform parent, TileType type, Vector3[] positions, int[] seeds)
+        private static void SpawnFlowerBillboards(Transform parent, Texture2D billboardSprite, Vector3[] positions, int[] seeds)
         {
             var go = new GameObject("FlowerBillboards");
             // worldPositionStays を false にする。true（既定）だとタイルの縮小スケール分だけ
@@ -692,7 +874,7 @@ namespace ElfVillage.Tiles
             // 実際に向いているカメラの角度がずれた際に板が真横を向き、
             // 縦に伸びた棘のような表示になる不具合があった。
             renderer.renderMode = ParticleSystemRenderMode.HorizontalBillboard;
-            var mat = GetBillboardMaterial(type);
+            var mat = GetBillboardMaterial(billboardSprite);
             if (mat != null) renderer.material = mat;
 
             // 再生状態にしてから Emit する（Stop直後にEmitすると再生開始時にクリアされることがある）
@@ -712,10 +894,11 @@ namespace ElfVillage.Tiles
             }
         }
 
-        // TileType.billboardSprite が設定されていればそれを使い、空欄ならコード生成の仮スプライトを使う
-        private static Material GetBillboardMaterial(TileType type)
+        // TileType.billboardSprite または TerrainVariantDefinition.billboardSprite が設定されていればそれを使い、
+        // 空欄ならコード生成の仮スプライトを使う
+        private static Material GetBillboardMaterial(Texture2D billboardSprite)
         {
-            Texture2D tex = type.billboardSprite != null ? type.billboardSprite : GetPlaceholderBillboardTexture();
+            Texture2D tex = billboardSprite != null ? billboardSprite : GetPlaceholderBillboardTexture();
             var shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
             if (shader == null || tex == null) return null;
 
