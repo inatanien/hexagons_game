@@ -77,10 +77,25 @@ namespace ElfVillage.Tiles
         [Tooltip("direction 0=右, 1=右上, 2=左上, 3=左, 4=左下, 5=右下")]
         public EdgeType[] edges = new EdgeType[6];
 
+        [Header("複数要素タイル（任意・空なら従来どおり単一要素として扱われる）")]
+        [Tooltip("このセッションではデータ追加のみ。接続判定・デッキ抽選・プロップ生成はまだこのフィールドを参照しない")]
+        public TileElement[] elements;
+
         public EdgeType GetEdge(int direction)
         {
             int d = ((direction % 6) + 6) % 6;
             return edges[d];
+        }
+
+        private void OnValidate()
+        {
+            if (elements == null) return;
+            for (int i = 0; i < elements.Length; i++)
+            {
+                if (elements[i] != null && elements[i].variant == null)
+                    Debug.LogWarning($"[{name}] elements[{i}] に variant が設定されていません。" +
+                                      "未設定のままだと有効なカテゴリとして扱われません。", this);
+            }
         }
     }
 }
