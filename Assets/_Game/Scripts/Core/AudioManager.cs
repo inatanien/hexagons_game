@@ -1,7 +1,7 @@
 // 役割: BGM・効果音・環境音・UI音を一元管理するオーディオ基盤（Singleton）。
 //       AudioMixerの音量制御APIを提供する。UI側は0〜1の線形値のみを扱い、
-//       dB変換はこのクラス内部で完結させる。再生API（PlayBGM等）は
-//       将来の音源追加に備えた骨組みのみで、今回は未実装。
+//       dB変換はこのクラス内部で完結させる。BGMは複数トラックを名前付きで
+//       登録し、切り替え再生できる。SE/Ambient/UIの再生APIは今回も未実装のまま。
 
 using UnityEngine;
 using UnityEngine.Audio;
@@ -24,6 +24,13 @@ namespace ElfVillage.Core
         [Range(0f, 1f)] public float initialVolume = 1f;
     }
 
+    [System.Serializable]
+    public class BGMTrackEntry
+    {
+        public string displayName;
+        public AudioClip clip;
+    }
+
     public class AudioManager : MonoBehaviour
     {
         public static AudioManager Instance { get; private set; }
@@ -33,14 +40,31 @@ namespace ElfVillage.Core
         [Header("チャンネルごとの初期音量（0〜1）")]
         [SerializeField] private AudioChannelVolume[] initialVolumes =
         {
-            new AudioChannelVolume { channel = AudioChannel.Master,  initialVolume = 1.0f },
-            new AudioChannelVolume { channel = AudioChannel.BGM,     initialVolume = 0.7f },
+            new AudioChannelVolume { channel = AudioChannel.Master,  initialVolume = 0.7f },
+            new AudioChannelVolume { channel = AudioChannel.BGM,     initialVolume = 0.05f },
             new AudioChannelVolume { channel = AudioChannel.SE,      initialVolume = 0.8f },
             new AudioChannelVolume { channel = AudioChannel.Ambient, initialVolume = 0.6f },
             new AudioChannelVolume { channel = AudioChannel.UI,      initialVolume = 0.8f },
         };
 
+        [Header("BGMトラック（表示名はAudioフォルダ内のフォルダ名を使用）")]
+        [SerializeField] private BGMTrackEntry[] bgmTracks;
+        [SerializeField] private AudioSource     bgmSource;
+
         private const float MinDecibel = -80f;
+
+        public System.Collections.Generic.IReadOnlyList<string> BGMTrackNames
+        {
+            get
+            {
+                var names = new System.Collections.Generic.List<string>();
+                if (bgmTracks != null)
+                    foreach (var t in bgmTracks) names.Add(t.displayName);
+                return names;
+            }
+        }
+
+        public int CurrentBGMTrackIndex { get; private set; } = -1;
 
         private void Awake()
         {
@@ -58,6 +82,16 @@ namespace ElfVillage.Core
         private void Start()
         {
             ApplyInitialVolumes();
+            if (bgmTracks != null && bgmTracks.Length > 0)
+                StartCoroutine(PlayInitialBGMDelayed());
+        }
+
+        // AudioSourceも、SetFloatと同様に初期化直後のPlay()が反映されないことがあるため、
+        // 1フレーム待ってから最初のBGMを再生する。
+        private System.Collections.IEnumerator PlayInitialBGMDelayed()
+        {
+            yield return null;
+            PlayBGMTrack(0);
         }
 
         private void ApplyInitialVolumes()
@@ -91,14 +125,28 @@ namespace ElfVillage.Core
         public void SetAmbientVolume(float linear01) => SetVolume(AudioChannel.Ambient, linear01);
         public void SetUIVolume(float linear01)      => SetVolume(AudioChannel.UI, linear01);
 
-        // ── 再生API（今回は未実装。音源追加後に実装する） ───────────────
-        // 呼ばれても無音のまま気づけないと不具合の温床になるため、未実装であることを
-        // Warningで明示する。実際の再生処理を実装したらこのWarningは削除すること。
+        // ── BGM再生 ─────────────────────────────────────────────────
+
+        /// <summary>指定インデックスのBGMトラックをループ再生する。設定画面のDropdownから呼ばれる。</summary>
+        public void PlayBGMTrack(int index)
+        {
+            if (bgmTracks == null || index < 0 || index >= bgmTracks.Length) return;
+            CurrentBGMTrackIndex = index;
+            PlayBGM(bgmTracks[index].clip);
+        }
 
         public void PlayBGM(AudioClip clip)
         {
-            Debug.LogWarning("PlayBGM is not implemented yet.");
+            if (bgmSource == null || clip == null) return;
+            if (bgmSource.clip == clip && bgmSource.isPlaying) return;
+            bgmSource.clip = clip;
+            bgmSource.loop = true;
+            bgmSource.Play();
         }
+
+        // ── 再生API（SE/Ambient/UIは今回も未実装） ───────────────────
+        // 呼ばれても無音のまま気づけないと不具合の温床になるため、未実装であることを
+        // Warningで明示する。実際の再生処理を実装したらこのWarningは削除すること。
 
         public void PlaySE(AudioClip clip)
         {

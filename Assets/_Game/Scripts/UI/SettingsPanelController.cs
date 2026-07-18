@@ -19,6 +19,11 @@ namespace ElfVillage.UI
         [SerializeField] private GameObject    settingsRoot;
         [SerializeField] private RectTransform settingsPanelRect;
         [SerializeField] private Button        backButton;
+        [SerializeField] private Dropdown      bgmDropdown;
+        [SerializeField] private Slider        masterVolumeSlider;
+        [SerializeField] private Slider        bgmVolumeSlider;
+        [SerializeField] private Slider        seVolumeSlider;
+        [SerializeField] private Slider        ambientVolumeSlider;
 
         [Header("アニメーション")]
         [SerializeField] private float slideDuration = 0.25f;
@@ -32,6 +37,28 @@ namespace ElfVillage.UI
         {
             if (settingsPanelRect != null) _shownPos = settingsPanelRect.anchoredPosition;
             if (backButton != null) backButton.onClick.AddListener(Close);
+            if (bgmDropdown != null) bgmDropdown.onValueChanged.AddListener(OnBGMTrackChanged);
+
+            if (masterVolumeSlider  != null) masterVolumeSlider.onValueChanged.AddListener(v => AudioManager.Instance?.SetMasterVolume(v));
+            if (bgmVolumeSlider     != null) bgmVolumeSlider.onValueChanged.AddListener(v => AudioManager.Instance?.SetBGMVolume(v));
+            if (seVolumeSlider      != null) seVolumeSlider.onValueChanged.AddListener(v => AudioManager.Instance?.SetSEVolume(v));
+            if (ambientVolumeSlider != null) ambientVolumeSlider.onValueChanged.AddListener(v => AudioManager.Instance?.SetAmbientVolume(v));
+        }
+
+        private void OnBGMTrackChanged(int index)
+        {
+            AudioManager.Instance?.PlayBGMTrack(index);
+        }
+
+        // パネルを開くたびに、AudioManagerが持つ実際の現在音量をスライダーへ反映する
+        // （SetValueWithoutNotifyでSet*Volumeへの再送信ループを防ぐ）。
+        private void SyncVolumeSliders()
+        {
+            if (AudioManager.Instance == null) return;
+            masterVolumeSlider?.SetValueWithoutNotify(AudioManager.Instance.GetVolume(AudioChannel.Master));
+            bgmVolumeSlider?.SetValueWithoutNotify(AudioManager.Instance.GetVolume(AudioChannel.BGM));
+            seVolumeSlider?.SetValueWithoutNotify(AudioManager.Instance.GetVolume(AudioChannel.SE));
+            ambientVolumeSlider?.SetValueWithoutNotify(AudioManager.Instance.GetVolume(AudioChannel.Ambient));
         }
 
         private void Start()
@@ -45,6 +72,7 @@ namespace ElfVillage.UI
         {
             GameInteractionStateController.SetState(GameInteractionState.Settings);
             if (settingsRoot != null) settingsRoot.SetActive(true);
+            SyncVolumeSliders();
             StartSlide(_shownPos, deactivateOnEnd: false);
         }
 
