@@ -292,18 +292,22 @@ namespace ElfVillage.Tiles
                 bool sameCategory = EdgeMatcher.SameCategory(placed.Data.tileType, neighbor.Data.tileType);
                 if (!sameType && !sameCategory) continue;
 
+                int oppositeDir = EdgeMatcher.GetOppositeDirection(dir);
                 placed.MarkConnectedEdge(dir);
-                neighbor.MarkConnectedEdge((dir + 3) % 6);
+                neighbor.MarkConnectedEdge(oppositeDir);
                 edges.Add(new ConnectionEdge(dir, neighbor));
 
-                // タイル同士のカテゴリ一致ではなく、辺そのものがEdgeType.River同士で一致する場合のみ
-                // 川として開放する（例: 川タイル同士でも互いにField辺を向け合っている場合は開放しない）
-                bool riverEdgeMatch = placed.Data.GetEdge(dir) == EdgeType.River
-                                   && neighbor.Data.GetEdge(dir + 3) == EdgeType.River;
+                // タイル同士のカテゴリ一致ではなく、辺そのものが実際にRiver同士で一致する場合のみ
+                // 川として開放する（例: 川タイル同士でも互いにField辺を向け合っている場合は開放しない）。
+                // 判定はEdgeMatcher.TryGetConnectedCategoryへ委譲し、反対方向計算・EdgeType取得・
+                // EdgeType比較の重複実装を避ける。挙動は従来の厳密な辺比較と同一。
+                bool riverEdgeMatch = EdgeMatcher.TryGetConnectedCategory(
+                        placed.Data.tileType, dir, neighbor.Data.tileType, out TileCategory connectedCategory)
+                    && connectedCategory == TileCategory.River;
                 if (riverEdgeMatch)
                 {
                     placed.MarkRiverEdgeOpen(dir);
-                    neighbor.MarkRiverEdgeOpen((dir + 3) % 6);
+                    neighbor.MarkRiverEdgeOpen(oppositeDir);
                     neighbor.RefreshRiverChannelMesh();
                     anyRiverEdgeMatch = true;
                 }
