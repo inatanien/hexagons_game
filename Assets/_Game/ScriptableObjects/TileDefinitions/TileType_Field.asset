@@ -35,3 +35,7 @@ MonoBehaviour:
   connectorColor: {r: 0, g: 0, b: 0, a: 0}
   connectorPrefab: {fileID: 0}
   edges: 020000000200000002000000020000000200000002000000
+  elements:
+  - variant: {fileID: 11400000, guid: 08538ebbab91f5b4ab48a29546aac692, type: 2}
+    areaWeight: 1
+    visualOnly: 0

@@ -15,6 +15,7 @@ MonoBehaviour:
   tileName: Forest
   tileColor: {r: 0.13, g: 0.55, b: 0.13, a: 1}
   tileCategory: Forest
+  groundTexture: {fileID: 0}
   isActive: 1
   propType: 1
   propCount: 10
@@ -29,7 +30,12 @@ MonoBehaviour:
   - {fileID: 0}
   - {fileID: 0}
   - {fileID: 0}
+  billboardSprite: {fileID: 0}
   dividerType: 0
   connectorColor: {r: 0, g: 0, b: 0, a: 0}
   connectorPrefab: {fileID: 0}
   edges: 010000000100000001000000010000000100000001000000
+  elements:
+  - variant: {fileID: 11400000, guid: 9f1c55b34dc640640a5fef133c62478f, type: 2}
+    areaWeight: 1
+    visualOnly: 0
