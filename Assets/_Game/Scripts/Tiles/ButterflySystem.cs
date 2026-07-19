@@ -210,6 +210,13 @@ namespace ElfVillage.Tiles
 
             var mat = new Material(shader) { name = "Butterfly_Runtime" };
             mat.SetFloat("_Surface", 1f);
+            // _Surface=1だけではGPUのブレンド式が不透明のまま残り、colorOverLifetime/
+            // sizeOverLifetimeのフェードが効かない（花のBillboard・花びらVFXと同じ不具合）。
+            // WorldBreathSystem.ForestBreathEffect.BuildMaterialと同じ値を明示する。
+            mat.SetFloat("_Blend",    0f);
+            mat.SetFloat("_SrcBlend", 5f);  // SrcAlpha
+            mat.SetFloat("_DstBlend", 10f); // OneMinusSrcAlpha
+            mat.SetFloat("_ZWrite",   0f);
             mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
             mat.SetColor("_BaseColor", Color.white);
             mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;

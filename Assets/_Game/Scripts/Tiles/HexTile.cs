@@ -1048,6 +1048,13 @@ namespace ElfVillage.Tiles
 
             var mat = new Material(shader) { name = "FlowerBillboard_Runtime" };
             mat.SetFloat("_Surface", 1f);
+            // _Surface=1だけではGPUのブレンド式が不透明のまま（既定値 _SrcBlend=One/_DstBlend=Zero/_ZWrite=1）
+            // 残ってしまい、テクスチャのアルファ（花びらの透明部分）が無視され不透明な四角形として
+            // 描画されていた。WorldBreathSystem.ForestBreathEffect.BuildMaterialと同じ値を明示する。
+            mat.SetFloat("_Blend",    0f);
+            mat.SetFloat("_SrcBlend", 5f);  // SrcAlpha
+            mat.SetFloat("_DstBlend", 10f); // OneMinusSrcAlpha
+            mat.SetFloat("_ZWrite",   0f);
             mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
             mat.SetColor("_BaseColor", Color.white);
             mat.SetTexture("_BaseMap", tex);
