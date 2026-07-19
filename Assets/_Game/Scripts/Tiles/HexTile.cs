@@ -189,6 +189,12 @@ namespace ElfVillage.Tiles
             if (meshRenderer != null && channelMesh.subMeshCount > 1)
             {
                 var channelMat = new Material(meshRenderer.sharedMaterial) { name = "RiverChannel_Runtime" };
+                // コピー元（スロット0の陸地マテリアル）がgroundTexture設定済みの場合、
+                // そのままだと川底にも地面テクスチャが混入してしまう（RefreshRiverChannelMesh経由の
+                // 再生成時に顕在化）ため、テクスチャだけ明示的に解除する。
+                // このプロジェクトのシェーダー（URP/Lit）ではmainTextureが_BaseMapのエイリアスのため、
+                // mainTexture=nullだけで_BaseMapも解除されることを実機で確認済み。
+                channelMat.mainTexture = null;
                 Color c = tileType.tileColor;
                 channelMat.color = new Color(c.r * 0.5f, c.g * 0.55f, c.b * 0.75f, c.a);
                 meshRenderer.materials = new[] { meshRenderer.material, channelMat };
