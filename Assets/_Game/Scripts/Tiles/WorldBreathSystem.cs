@@ -21,6 +21,12 @@ namespace ElfVillage.Tiles
         [SerializeField] private float _windDuration = 3f;
         [SerializeField] private float _windInterval = 20f;
 
+        // 葉っぱVFX専用の基準色。地面色統一（TileType.tileColorの白化）の影響を受けないよう、
+        // TileType.tileColor / EffectivePreviewColorには依存せずここで独立して保持する。
+        // 初期値は旧TileType_Forest.tileColorと同じ値（地面色統一前の見た目を維持）。
+        [Header("葉っぱVFX色")]
+        [SerializeField] private Color _forestLeafBaseColor = new Color(0.13f, 0.55f, 0.13f, 1f);
+
         // クラスターごとにエフェクトを管理する。
         // 同じ TileType でも場所が離れていれば別エントリとして共存する。
         private readonly Dictionary<TileType, List<ClusterEntry>> _clusterMap = new();
@@ -103,7 +109,7 @@ namespace ElfVillage.Tiles
             {
                 if (cluster.Gentle == null)
                     cluster.Gentle = new ForestBreathEffect(
-                        evt.TerrainType.tileColor, isWind: false, transform, _cachedParticleMat);
+                        _forestLeafBaseColor, isWind: false, transform, _cachedParticleMat);
                 cluster.Gentle.UpdateBounds(evt.AffectedTiles);
                 cluster.Gentle.Play();
             }
@@ -113,7 +119,7 @@ namespace ElfVillage.Tiles
             {
                 if (cluster.Wind == null)
                     cluster.Wind = new ForestBreathEffect(
-                        evt.TerrainType.tileColor, isWind: true, transform, _cachedParticleMat);
+                        _forestLeafBaseColor, isWind: true, transform, _cachedParticleMat);
                 cluster.Wind.UpdateBounds(evt.AffectedTiles);
                 cluster.Wind.SetWindStrength(CalcWindStrength(size));
 
@@ -308,13 +314,6 @@ namespace ElfVillage.Tiles
                 ));
             }
 
-            private static ParticleSystem.MinMaxGradient LeafColorGradient(Color baseColor)
-            {
-                var c1 = Color.Lerp(baseColor, new Color(0.75f, 0.95f, 0.20f, 1f), 0.25f);
-                var c2 = Color.Lerp(baseColor, new Color(0.90f, 0.85f, 0.10f, 1f), 0.30f);
-                return new ParticleSystem.MinMaxGradient(c1, c2);
-            }
-
             private static ParticleSystem.MinMaxGradient FadeGradient()
             {
                 var g = new Gradient();
@@ -348,6 +347,17 @@ namespace ElfVillage.Tiles
                 mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
                 return mat;
             }
+        }
+
+        // ForestBreathEffect（private nested class）から抽出した純粋関数。
+        // ネストクラスは外側クラスのprivateメンバーにもアクセスできるため、
+        // Setup()側の呼び出しは無修正のまま動作する。EditModeテストから直接
+        // 検証できるようにするためだけにここへ配置している（挙動・計算式は変更なし）。
+        public static ParticleSystem.MinMaxGradient LeafColorGradient(Color baseColor)
+        {
+            var c1 = Color.Lerp(baseColor, new Color(0.75f, 0.95f, 0.20f, 1f), 0.25f);
+            var c2 = Color.Lerp(baseColor, new Color(0.90f, 0.85f, 0.10f, 1f), 0.30f);
+            return new ParticleSystem.MinMaxGradient(c1, c2);
         }
     }
 }
