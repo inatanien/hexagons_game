@@ -2,6 +2,8 @@
 //       複数の独立したクラスターをそれぞれ追跡し、すべての場所から花びらを放出する。
 //       最大クラスターサイズに応じて段階的に花びらの色が追加される。
 //       デフォルト: 3=黄, 4=青, 5=紫, 6=赤, 7=ピンク
+//       色ティアが打ち止めになる7枚以降も、25枚まではクラスターが大きいほど
+//       1バーストの発生数が最大4倍まで増える（それ以降は頭打ち）。
 
 using System.Collections;
 using System.Collections.Generic;
@@ -19,6 +21,17 @@ namespace ElfVillage.Tiles
         [Header("1回の放出数")]
         [SerializeField] private int _emitCountMin = 1;
         [SerializeField] private int _emitCountMax = 3;
+
+        [Header("大規模クラスターでの発生数増加（上限あり）")]
+        [Tooltip("この枚数を超えたクラスターサイズから発生数が増え始める（色ティアが打ち止めになる枚数と合わせる）")]
+        [SerializeField] private int _boostStartSize = 7;
+        [Tooltip("この枚数で発生数が最大倍率に到達し、以降は頭打ちになる")]
+        [SerializeField] private int _boostMaxSize = 25;
+        [Tooltip("最大倍率（_emitCountMin/_emitCountMaxにこの倍率を掛けた値が上限になる）")]
+        [SerializeField] private float _boostMaxMultiplier = 4f;
+
+        // 直近のFlowerClusterEventで計算した最大クラスターサイズ（EmitRoutineの発生数スケーリングに使う）
+        private int _currentMaxClusterSize;
 
         // 閾値ごとの色定義
         private readonly struct PetalTier
@@ -75,6 +88,7 @@ namespace ElfVillage.Tiles
             int maxSize = 0;
             foreach (var c in _clusters)
                 if (c.Count > maxSize) maxSize = c.Count;
+            _currentMaxClusterSize = maxSize;
 
             foreach (var t in _tiers)
                 t.go.SetActive(maxSize >= t.threshold);
@@ -201,7 +215,13 @@ namespace ElfVillage.Tiles
 
                 if (_tilePositions.Count == 0) yield break;
 
-                int count = Random.Range(_emitCountMin, _emitCountMax + 1);
+                // クラスターが大きいほど1バーストの発生数を増やす（_boostMaxSizeで頭打ち）。
+                // WorldBreathSystem.CalcWindStrengthと同じ「Lerpで段階的に強度を上げ上限で頭打ち」設計。
+                float mult    = CalcCountMultiplier(_currentMaxClusterSize, _boostStartSize, _boostMaxSize, _boostMaxMultiplier);
+                int minCount  = Mathf.Max(_emitCountMin, Mathf.RoundToInt(_emitCountMin * mult));
+                int maxCount  = Mathf.Max(minCount,      Mathf.RoundToInt(_emitCountMax * mult));
+
+                int count = Random.Range(minCount, maxCount + 1);
                 for (int i = 0; i < count; i++)
                 {
                     foreach (var t in _tiers)
@@ -218,6 +238,20 @@ namespace ElfVillage.Tiles
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// クラスターサイズに応じた発生数倍率。boostStartSize以下は1倍、boostMaxSize以上でmaxMultiplierに
+        /// 頭打ちになる（間は線形補間）。EditModeテストから直接検証できるようpublic staticにしている
+        /// （ElementRegionLayout/TilePropVisualBuilderと同じ、本プロジェクトの純粋関数テスト規約）。
+        /// </summary>
+        public static float CalcCountMultiplier(int clusterSize, int boostStartSize, int boostMaxSize, float maxMultiplier)
+        {
+            if (clusterSize <= boostStartSize) return 1f;
+            if (clusterSize >= boostMaxSize)    return maxMultiplier;
+
+            float t = (float)(clusterSize - boostStartSize) / (boostMaxSize - boostStartSize);
+            return Mathf.Lerp(1f, maxMultiplier, t);
         }
 
         // ── マテリアル ─────────────────────────────────────────────────
