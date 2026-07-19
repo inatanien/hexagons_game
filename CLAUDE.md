@@ -48,11 +48,19 @@ git status
 
 ```bash
 git add .
-git commit -m "PhaseN: 機能名"
+git commit -m "fix: short description of the change"
 git push
 ```
 
 コンパイルエラーがないことを確認してからコミットする。
+
+### コミットメッセージ規約
+
+- コミットメッセージは原則すべて英語で記述する
+- Conventional Commits（`fix:`, `feat:`, `refactor:`, `docs:`, `test:`, `chore:` など）を使用する
+- 短く、変更内容が分かる表現にする
+- 将来GitHub上で履歴を見返すことを前提に、一貫した表現を維持する
+- 既存の日本語コミットはそのままで構わない。今後作成するコミットから英語に統一する
 
 ## Unity環境
 
