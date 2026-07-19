@@ -300,9 +300,12 @@ namespace ElfVillage.Tiles
                 // タイル同士のカテゴリ一致ではなく、辺そのものが実際にRiver同士で一致する場合のみ
                 // 川として開放する（例: 川タイル同士でも互いにField辺を向け合っている場合は開放しない）。
                 // 判定はEdgeMatcher.TryGetConnectedCategoryへ委譲し、反対方向計算・EdgeType取得・
-                // EdgeType比較の重複実装を避ける。挙動は従来の厳密な辺比較と同一。
+                // EdgeType比較の重複実装を避ける。placed/neighbor双方のrotationを渡すことで、
+                // 回転済みタイル同士でも正しい辺を突き合わせる（回転未対応だと川の開放判定が
+                // 誤り、川底が本来と逆の場面で盛り上がる/盛り上がらないバグになっていた）。
                 bool riverEdgeMatch = EdgeMatcher.TryGetConnectedCategory(
-                        placed.Data.tileType, dir, neighbor.Data.tileType, out TileCategory connectedCategory)
+                        placed.Data.tileType, dir, placed.Data.rotation,
+                        neighbor.Data.tileType, neighbor.Data.rotation, out TileCategory connectedCategory)
                     && connectedCategory == TileCategory.River;
                 if (riverEdgeMatch)
                 {

@@ -94,8 +94,8 @@ namespace ElfVillage.Tiles
         }
 
         // ── 方向ベースの接続判定API（TileType.elements対応の下準備） ──────────
-        // まだ本番処理（HexGridManager等）からは呼ばれない。次セッションでの
-        // 接続判定の一元化に備え、重複ロジックを避けるための土台として用意する。
+        // HexGridManager.CheckAndApplyConnectionsの川辺開放判定（RefreshRiverChannelMesh経由で
+        // RiverChannelMeshBuilderのopenA/openBに渡る）から呼ばれる（Session 2B）。
 
         private const int DirectionCount = 6;
 
@@ -106,49 +106,83 @@ namespace ElfVillage.Tiles
             return (normalized + DirectionCount / 2) % DirectionCount;
         }
 
+        /// <summary>0〜5へ正規化する（負値もTileData.GetEdgeと同じ規則で折り返す）。</summary>
+        private static int NormalizeDirection(int direction)
+            => ((direction % DirectionCount) + DirectionCount) % DirectionCount;
+
         /// <summary>
-        /// 指定方向のEdgeTypeを安全に取得する。tileTypeがnull、edgesが未設定、
-        /// directionが範囲外の場合はfalseを返す（例外を投げない）。
+        /// 指定方向のEdgeTypeを安全に取得する（rotation=0固定）。回転済みタイルの辺を
+        /// 正しく取得するにはTryGetEdgeType(tileType, direction, rotation, out edgeType)を使うこと。
+        /// tileTypeがnull、edgesが未設定、directionが範囲外の場合はfalseを返す（例外を投げない）。
         /// </summary>
         public static bool TryGetEdgeType(TileType tileType, int direction, out EdgeType edgeType)
+            => TryGetEdgeType(tileType, direction, rotation: 0, out edgeType);
+
+        /// <summary>
+        /// directionをワールド方向、rotationをTileData.rotationと同じ意味として、
+        /// direction - rotation をローカル方向へ正規化した上でEdgeTypeを取得する
+        /// （TileData.GetEdgeと同じ規則。回転済みタイルで正しい辺を読むために必須）。
+        /// tileTypeがnull、edgesが未設定、directionが範囲外の場合はfalseを返す（例外を投げない）。
+        /// </summary>
+        public static bool TryGetEdgeType(TileType tileType, int direction, int rotation, out EdgeType edgeType)
         {
             edgeType = EdgeType.None;
             if (tileType == null) return false;
             if (tileType.edges == null) return false;
             if (direction < 0 || direction >= DirectionCount) return false;
-            if (direction >= tileType.edges.Length) return false;
 
-            edgeType = tileType.edges[direction];
+            int local = NormalizeDirection(direction - rotation);
+            if (local >= tileType.edges.Length) return false;
+
+            edgeType = tileType.edges[local];
             return true;
         }
 
         /// <summary>
         /// sourceのsourceDirection側の辺と、neighborの反対方向側の辺が
-        /// 同じ非None EdgeTypeで一致しているかを判定する。None同士は一致として扱わない。
+        /// 同じ非None EdgeTypeで一致しているかを判定する（rotation=0固定）。None同士は一致として扱わない。
         /// </summary>
         public static bool AreEdgesCompatible(TileType source, int sourceDirection, TileType neighbor)
+            => AreEdgesCompatible(source, sourceDirection, sourceRotation: 0, neighbor, neighborRotation: 0);
+
+        /// <summary>
+        /// AreEdgesCompatibleの回転対応版。sourceRotation/neighborRotationはそれぞれ
+        /// TileData.rotationと同じ意味で、TileData.GetEdgeと同じ規則で辺を読む。
+        /// </summary>
+        public static bool AreEdgesCompatible(
+            TileType source, int sourceDirection, int sourceRotation,
+            TileType neighbor, int neighborRotation)
         {
-            if (!TryGetEdgeType(source, sourceDirection, out EdgeType sourceEdge)) return false;
+            if (!TryGetEdgeType(source, sourceDirection, sourceRotation, out EdgeType sourceEdge)) return false;
             if (sourceEdge == EdgeType.None) return false;
 
             int neighborDirection = GetOppositeDirection(sourceDirection);
-            if (!TryGetEdgeType(neighbor, neighborDirection, out EdgeType neighborEdge)) return false;
+            if (!TryGetEdgeType(neighbor, neighborDirection, neighborRotation, out EdgeType neighborEdge)) return false;
 
             return sourceEdge == neighborEdge;
         }
 
         /// <summary>
-        /// sourceDirection方向で辺が一致する場合、その辺が属するTileCategoryを返す。
+        /// sourceDirection方向で辺が一致する場合、その辺が属するTileCategoryを返す（rotation=0固定）。
         /// 辺が一致しない場合、またはEdgeTypeに対応するTileCategoryが存在しない
         /// （Villageのように辺を持たないカテゴリ）場合はfalseを返す。
         /// TileType.elements/variantの設定有無に関わらず、edgesのみを情報源として判定する。
         /// </summary>
         public static bool TryGetConnectedCategory(
             TileType source, int sourceDirection, TileType neighbor, out TileCategory category)
+            => TryGetConnectedCategory(source, sourceDirection, sourceRotation: 0, neighbor, neighborRotation: 0, out category);
+
+        /// <summary>
+        /// TryGetConnectedCategoryの回転対応版。両タイルの実際の配置回転を渡すことで、
+        /// 回転済みタイル同士でも正しい辺を突き合わせて判定する。
+        /// </summary>
+        public static bool TryGetConnectedCategory(
+            TileType source, int sourceDirection, int sourceRotation,
+            TileType neighbor, int neighborRotation, out TileCategory category)
         {
             category = default;
-            if (!AreEdgesCompatible(source, sourceDirection, neighbor)) return false;
-            if (!TryGetEdgeType(source, sourceDirection, out EdgeType matchedEdge)) return false;
+            if (!AreEdgesCompatible(source, sourceDirection, sourceRotation, neighbor, neighborRotation)) return false;
+            if (!TryGetEdgeType(source, sourceDirection, sourceRotation, out EdgeType matchedEdge)) return false;
 
             var mapped = TileCategoryMapping.FromEdgeType(matchedEdge);
             if (!mapped.HasValue) return false;

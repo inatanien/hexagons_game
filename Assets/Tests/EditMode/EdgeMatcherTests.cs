@@ -101,5 +101,79 @@ namespace ElfVillage.Tests
             };
             Assert.IsTrue(EdgeMatcher.HasAnyPlaced(grid));
         }
+
+        // ── TryGetEdgeType / AreEdgesCompatible / TryGetConnectedCategory の回転対応 ──────
+        // 川底の盛り上がり判定（HexGridManager.CheckAndApplyConnections）が、回転済みタイル同士の
+        // 接続で辺を取り違えていた回帰の再現・修正確認。TileData.GetEdge（direction - rotation）と
+        // 同じ規則で判定できているかを検証する。
+
+        // River_Bend相当（ローカル方向0と5がRiver、隣接2辺のカーブ）
+        private static TileType MakeBendType()
+        {
+            var t = ScriptableObject.CreateInstance<TileType>();
+            t.edges = new[]
+            {
+                EdgeType.River, EdgeType.Field, EdgeType.Field,
+                EdgeType.Field, EdgeType.Field, EdgeType.River,
+            };
+            return t;
+        }
+
+        [Test]
+        public void TryGetEdgeType_WithRotation_MatchesTileDataGetEdge()
+        {
+            var type = MakeBendType();
+            for (int rotation = 0; rotation < 6; rotation++)
+            {
+                var data = new TileData(HexCoord.Zero, type, rotation);
+                for (int dir = 0; dir < 6; dir++)
+                {
+                    EdgeMatcher.TryGetEdgeType(type, dir, rotation, out EdgeType viaMatcher);
+                    Assert.AreEqual(data.GetEdge(dir), viaMatcher,
+                        $"rotation={rotation}, dir={dir}: EdgeMatcherとTileData.GetEdgeの結果が一致しない");
+                }
+            }
+        }
+
+        [Test]
+        public void TryGetConnectedCategory_RotatedBendNeighbor_PreviouslyMismatched_NowCorrect()
+        {
+            // 実際のRiver_Bend資産同士で発見した回帰ケース: placed(rot=0)のdir=5に対し、
+            // neighbor(rot=2)は本来「開いている(River同士接続)」はずが、rotation未対応の
+            // 旧実装ではfalse（閉じている）と誤判定し、本来盛り上がるべきでない場所で
+            // 川底が盛り上がっていた。
+            var placedType   = MakeBendType();
+            var neighborType = MakeBendType();
+
+            bool matched = EdgeMatcher.TryGetConnectedCategory(
+                    placedType, 5, 0, neighborType, 2, out TileCategory category)
+                && category == TileCategory.River;
+
+            var placedData   = new TileData(HexCoord.Zero, placedType, 0);
+            var neighborData = new TileData(HexCoord.Zero.Neighbor(5), neighborType, 2);
+            bool expected = placedData.CanConnect(neighborData, 5)
+                && placedData.GetEdge(5) == EdgeType.River;
+
+            Assert.IsTrue(expected, "テスト前提: このケースは本来Riverで接続しているはず");
+            Assert.AreEqual(expected, matched, "回転を考慮したTryGetConnectedCategoryはTileData基準の正解と一致するはず");
+        }
+
+        [Test]
+        public void TryGetConnectedCategory_NoRotationOverload_StillDefaultsToZero()
+        {
+            // 既存の（rotation引数なし）呼び出しが、rotation=0を渡した場合と同じ結果になることを
+            // 確認する（後方互換）。
+            var placedType   = MakeBendType();
+            var neighborType = MakeBendType();
+
+            bool viaOldOverload = EdgeMatcher.TryGetConnectedCategory(
+                    placedType, 5, neighborType, out TileCategory catOld)
+                && catOld == TileCategory.River;
+            bool viaNewOverloadZero = EdgeMatcher.TryGetConnectedCategory(
+                    placedType, 5, 0, neighborType, 0, out TileCategory catNew)
+                && catNew == TileCategory.River;
+
+            Assert.AreEqual(viaNewOverloadZero, viaOldOverload, "rotation引数なしの呼び出しはrotation=0指定と同じ結果になるはず");
+        }
     }
 }
