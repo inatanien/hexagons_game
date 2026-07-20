@@ -22,5 +22,9 @@ namespace ElfVillage.Quest
         [Tooltip("達成に必要なクラスターサイズ。0以下は不正値として扱い、QuestManagerは" +
                   "このクエストを開始しない（警告ログを出す）")]
         public int targetCount = 5;
+
+        [Tooltip("達成時にQuestRewardSystemが解釈する報酬ID（例: \"forest_unlock_birds\"）。" +
+                  "空文字の場合は報酬なし。")]
+        public string rewardId;
     }
 }
