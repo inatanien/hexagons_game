@@ -253,10 +253,12 @@ namespace ElfVillage.Tiles
                 var main = _ps.main;
                 main.loop            = true;
                 main.duration        = 4f;
+                // 目立ちすぎないようサイズだけ控えめにしている（元は0.10〜0.28）。
+                // パーティクル数・発生頻度は元の値に戻した（ユーザー指定）。
                 main.maxParticles    = isWind ? 80 : 30;
                 main.startLifetime   = new ParticleSystem.MinMaxCurve(4.0f, 7.0f);
                 main.startSpeed      = new ParticleSystem.MinMaxCurve(0f);  // shape 方向を無効化
-                main.startSize       = new ParticleSystem.MinMaxCurve(0.10f, 0.28f);
+                main.startSize       = new ParticleSystem.MinMaxCurve(0.08f, 0.22f);
                 main.startRotation   = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
                 main.startColor      = LeafColorGradient(tileColor);
                 // 穏やかは velocityOverLifetime で下方向を明示するので重力は 0
@@ -317,12 +319,13 @@ namespace ElfVillage.Tiles
             private static ParticleSystem.MinMaxGradient FadeGradient()
             {
                 var g = new Gradient();
+                // 目立ちすぎないよう最大不透明度を抑えている（元はピーク時1f、完全不透明だった）。
                 g.SetKeys(
                     new[] { new GradientColorKey(Color.white, 0f),
                             new GradientColorKey(Color.white, 1f) },
                     new[] { new GradientAlphaKey(0f,    0f),
-                            new GradientAlphaKey(1f,    0.05f),
-                            new GradientAlphaKey(1f,    0.80f),
+                            new GradientAlphaKey(0.75f, 0.05f),
+                            new GradientAlphaKey(0.75f, 0.80f),
                             new GradientAlphaKey(0f,    1f) }
                 );
                 return new ParticleSystem.MinMaxGradient(g);
@@ -355,8 +358,10 @@ namespace ElfVillage.Tiles
         // 検証できるようにするためだけにここへ配置している（挙動・計算式は変更なし）。
         public static ParticleSystem.MinMaxGradient LeafColorGradient(Color baseColor)
         {
-            var c1 = Color.Lerp(baseColor, new Color(0.75f, 0.95f, 0.20f, 1f), 0.25f);
-            var c2 = Color.Lerp(baseColor, new Color(0.90f, 0.85f, 0.10f, 1f), 0.30f);
+            // 目立ちすぎないよう、鮮やかな黄緑（0.75,0.95,0.20等）への寄せ幅を抑え、
+            // 基準色（森の深緑）に近い落ち着いた色にしている（元はブレンド比0.25f/0.30f）。
+            var c1 = Color.Lerp(baseColor, new Color(0.75f, 0.95f, 0.20f, 1f), 0.15f);
+            var c2 = Color.Lerp(baseColor, new Color(0.90f, 0.85f, 0.10f, 1f), 0.18f);
             return new ParticleSystem.MinMaxGradient(c1, c2);
         }
     }
