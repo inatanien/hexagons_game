@@ -1,7 +1,7 @@
 ﻿{
     "name": "_Game.Tests.EditMode",
     "rootNamespace": "ElfVillage.Tests",
-    "references": ["_Game.Scripts.Core", "_Game.Scripts.HexGrid", "_Game.Scripts.Tiles", "_Game.Scripts.Quest", "_Game.Editor", "UnityEngine.TestRunner", "UnityEditor.TestRunner"],
+    "references": ["_Game.Scripts.Core", "_Game.Scripts.HexGrid", "_Game.Scripts.Tiles", "_Game.Scripts.Quest", "_Game.Scripts.UI", "_Game.Editor", "UnityEngine.TestRunner", "UnityEditor.TestRunner", "Unity.TextMeshPro"],
     "includePlatforms": ["Editor"],
     "excludePlatforms": [],
     "allowUnsafeCode": false,

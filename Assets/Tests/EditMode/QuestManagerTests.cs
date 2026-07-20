@@ -53,12 +53,15 @@ namespace ElfVillage.Tests
             return q;
         }
 
+        // OnEnable→Startの順で呼ぶ（実際のUnityライフサイクルと同じ）。QuestStartedEventの
+        // タイミング自体を検証するテストは、これを使わず個別にOnEnable/Startを呼び分ける。
         private static QuestManager MakeQuestManager(QuestDefinition quest)
         {
             var go      = new GameObject("TestQuestManager");
             var manager = go.AddComponent<QuestManager>();
             SetPrivateField(manager, "_activeQuest", quest);
             InvokeLifecycle(manager, "OnEnable");
+            InvokeLifecycle(manager, "Start");
             return manager;
         }
 
@@ -242,28 +245,91 @@ namespace ElfVillage.Tests
             }
         }
 
-        // ── 7. Quest開始時にQuestStartedEventが発行される ─────────────────
+        // ── 7. Quest開始時にQuestStartedEventが発行される（OnEnableではなくStartで） ──
 
         [Test]
-        public void QuestManager_PublishesQuestStartedEvent_OnEnable()
+        public void QuestManager_DoesNotPublishQuestStartedEvent_DuringOnEnable()
+        {
+            var quest = MakeQuest(TerrainClusterCategory.Forest, 5);
+
+            bool received = false;
+            System.Action<QuestStartedEvent> handler = e => received = true;
+            EventBus.Subscribe(handler);
+
+            var go      = new GameObject("TestQuestManagerOnEnableOnly");
+            var manager = go.AddComponent<QuestManager>();
+            SetPrivateField(manager, "_activeQuest", quest);
+            try
+            {
+                InvokeLifecycle(manager, "OnEnable");
+
+                Assert.IsFalse(received, "OnEnable完了時点ではQuestStartedEventはまだ発行されていないはず");
+            }
+            finally
+            {
+                EventBus.Unsubscribe(handler);
+                InvokeLifecycle(manager, "OnDisable");
+                Object.DestroyImmediate(go);
+            }
+        }
+
+        [Test]
+        public void QuestManager_PublishesQuestStartedEvent_OnStart()
         {
             var quest = MakeQuest(TerrainClusterCategory.Forest, 5);
 
             QuestStartedEvent received = null;
             System.Action<QuestStartedEvent> handler = e => received = e;
             EventBus.Subscribe(handler);
-            QuestManager manager = null;
+
+            var go      = new GameObject("TestQuestManagerOnStart");
+            var manager = go.AddComponent<QuestManager>();
+            SetPrivateField(manager, "_activeQuest", quest);
             try
             {
-                manager = MakeQuestManager(quest);
+                InvokeLifecycle(manager, "OnEnable");
+                Assert.IsNull(received, "前提: OnEnable直後はまだ発行されていない");
 
-                Assert.IsNotNull(received);
+                InvokeLifecycle(manager, "Start");
+
+                Assert.IsNotNull(received, "Startを呼んだ時点でQuestStartedEventが発行されるはず");
                 Assert.AreEqual(quest, received.Quest);
             }
             finally
             {
                 EventBus.Unsubscribe(handler);
-                if (manager != null) Teardown(manager);
+                InvokeLifecycle(manager, "OnDisable");
+                Object.DestroyImmediate(go);
+            }
+        }
+
+        [Test]
+        public void QuestManager_DoesNotDuplicateQuestStartedEvent_WhenStartCalledTwice()
+        {
+            // 通常のUnityライフサイクルではStartは1回しか呼ばれないが、_startedガードの
+            // 防御を明示的に確認する（重複呼び出しがあっても2回発行されないこと）。
+            var quest = MakeQuest(TerrainClusterCategory.Forest, 5);
+
+            int startedCount = 0;
+            System.Action<QuestStartedEvent> handler = e => startedCount++;
+            EventBus.Subscribe(handler);
+
+            var go      = new GameObject("TestQuestManagerDoubleStart");
+            var manager = go.AddComponent<QuestManager>();
+            SetPrivateField(manager, "_activeQuest", quest);
+            try
+            {
+                InvokeLifecycle(manager, "OnEnable");
+                InvokeLifecycle(manager, "Start");
+                InvokeLifecycle(manager, "Start"); // 2回目（本来は起こらないが防御を確認）
+
+                Assert.AreEqual(1, startedCount, "Startが複数回呼ばれてもQuestStartedEventは1回だけのはず");
+            }
+            finally
+            {
+                EventBus.Unsubscribe(handler);
+                InvokeLifecycle(manager, "OnDisable");
+                Object.DestroyImmediate(go);
             }
         }
 
@@ -286,8 +352,9 @@ namespace ElfVillage.Tests
             try
             {
                 InvokeLifecycle(manager, "OnEnable");
+                InvokeLifecycle(manager, "Start");
 
-                Assert.IsFalse(startedReceived, "targetCount<=0のクエストはQuestStartedEventを発行しないはず");
+                Assert.IsFalse(startedReceived, "targetCount<=0のクエストはOnEnable・Startを通しても一切QuestStartedEventを発行しないはず");
 
                 // 購読していないはずなので、進捗イベントを送っても何も起きない（例外も出ない）ことを確認
                 Assert.DoesNotThrow(() =>
