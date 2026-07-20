@@ -1,6 +1,10 @@
 // 役割: 森タイルの成長を評価し TerrainGrowthEvent<ForestGrowthMetrics> を発行する。
 //       TilePlacedEvent を購読し、森タイルが配置されるたびに BFS でクラスターを計算する。
 //       川・街など他地形の評価は同じ構造でそれぞれのエバリュエーターを追加する。
+//       クラスター判定は TileType.HasEffectCategory(Forest) を使う（Session 12）。
+//       これにより legacy 単一タイル（TileType_Forest）と、Forest要素を持つ複合タイル
+//       （TileType_ForestFlower等。Forest要素がvisualOnlyでなければ）が同じForestクラスター
+//       として繋がる。
 
 using System.Collections.Generic;
 using UnityEngine;
@@ -12,9 +16,6 @@ namespace ElfVillage.Tiles
     public class ForestGrowthEvaluator : MonoBehaviour
     {
         [SerializeField] private HexGridManager _gridManager;
-
-        [Header("森として扱うタイルタイプ（複数可）")]
-        [SerializeField] private TileType[] _forestTileTypes;
 
         // 配置済み森タイルの総数（インクリメント管理）
         // TODO: Save/Load または TileRemoval 実装時は
@@ -30,7 +31,7 @@ namespace ElfVillage.Tiles
 
             _totalForestTiles++;
 
-            var cluster = FindCluster(evt.Coord, evt.TileType);
+            var cluster = FindCluster(evt.Coord);
             var metrics = new ForestGrowthMetrics(
                 largestClusterSize: cluster.Count,
                 totalForestTiles:   _totalForestTiles
@@ -44,9 +45,9 @@ namespace ElfVillage.Tiles
             ));
         }
 
-        // ── BFS: 配置タイルから同種タイルを全走査 ────────────────────
+        // ── BFS: 配置タイルからForestカテゴリを持つタイルを全走査 ────────────────────
 
-        private List<HexTile> FindCluster(HexCoord startCoord, TileType targetType)
+        private List<HexTile> FindCluster(HexCoord startCoord)
         {
             var result  = new List<HexTile>();
             var visited = new HashSet<HexCoord>();
@@ -60,7 +61,7 @@ namespace ElfVillage.Tiles
                 var coord = queue.Dequeue();
 
                 if (!_gridManager.TryGetTile(coord, out var tile)) continue;
-                if (!tile.IsPlaced || tile.Data.tileType != targetType) continue;
+                if (!tile.IsPlaced || !IsForestType(tile.Data.tileType)) continue;
 
                 result.Add(tile);
 
@@ -75,12 +76,7 @@ namespace ElfVillage.Tiles
             return result;
         }
 
-        private bool IsForestType(TileType type)
-        {
-            if (_forestTileTypes == null) return false;
-            foreach (var ft in _forestTileTypes)
-                if (ft == type) return true;
-            return false;
-        }
+        private static bool IsForestType(TileType type)
+            => type != null && type.HasEffectCategory(TileCategory.Forest);
     }
 }

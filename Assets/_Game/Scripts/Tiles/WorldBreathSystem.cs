@@ -27,9 +27,14 @@ namespace ElfVillage.Tiles
         [Header("葉っぱVFX色")]
         [SerializeField] private Color _forestLeafBaseColor = new Color(0.13f, 0.55f, 0.13f, 1f);
 
-        // クラスターごとにエフェクトを管理する。
-        // 同じ TileType でも場所が離れていれば別エントリとして共存する。
-        private readonly Dictionary<TileType, List<ClusterEntry>> _clusterMap = new();
+        // クラスターごとにエフェクトを管理する。TileTypeでは区切らず、実際のタイル集合の
+        // 重なりだけで同一物理クラスターかどうかを判定する（FlowerPetalSystem._clustersと同じ設計）。
+        // 以前はTileTypeをキーにしたDictionary<TileType, List<ClusterEntry>>だったため、
+        // legacy単一タイル（TileType_Forest）と複合タイル（TileType_ForestFlower等）が
+        // 物理的には同じクラスターでも別々のキーに分かれ、VFXが重複生成される不具合があった
+        // （ForestGrowthEvaluatorがカテゴリベース判定になり、両者が同じクラスターとして
+        // 扱われるようになったことで顕在化。Session 13）。
+        private readonly List<ClusterEntry> _clusters = new();
 
         // タイル配置と同フレームに Shader.Find + new Material が走るとフリーズするため
         // Awake でシェーダーを事前コンパイルしてキャッシュする。
@@ -58,28 +63,23 @@ namespace ElfVillage.Tiles
 
         private void OnDestroy()
         {
-            foreach (var entries in _clusterMap.Values)
-                foreach (var e in entries)
-                    e.DestroyEffects();
-            _clusterMap.Clear();
+            foreach (var e in _clusters)
+                e.DestroyEffects();
+            _clusters.Clear();
         }
 
         private void OnForestGrow(TerrainGrowthEvent<ForestGrowthMetrics> evt)
         {
             int size = evt.Metrics.LargestClusterSize;
 
-            if (!_clusterMap.TryGetValue(evt.TerrainType, out var entries))
-            {
-                entries = new List<ClusterEntry>();
-                _clusterMap[evt.TerrainType] = entries;
-            }
-
             // AffectedTiles = 今回イベントが属するクラスターの全タイル（BFS結果）
             var currentTileSet = new HashSet<HexTile>(evt.AffectedTiles);
 
-            // 既存クラスターとの重複チェック（タイルが重なる = 同じクラスター）
+            // 既存クラスターとの重複チェック（タイルが重なる = 同じクラスター）。
+            // TileTypeでは区切らず全クラスターを対象にするため、legacy単一タイルと
+            // 複合タイルが混在するクラスターも正しく1つとして扱われる。
             var overlapping = new List<ClusterEntry>();
-            foreach (var entry in entries)
+            foreach (var entry in _clusters)
                 if (entry.Tiles.Overlaps(currentTileSet))
                     overlapping.Add(entry);
 
@@ -88,7 +88,7 @@ namespace ElfVillage.Tiles
             {
                 // 新規クラスター（全く別の場所）
                 cluster = new ClusterEntry();
-                entries.Add(cluster);
+                _clusters.Add(cluster);
             }
             else
             {
@@ -98,7 +98,7 @@ namespace ElfVillage.Tiles
                 for (int i = 1; i < overlapping.Count; i++)
                 {
                     overlapping[i].DestroyEffects(this);
-                    entries.Remove(overlapping[i]);
+                    _clusters.Remove(overlapping[i]);
                 }
             }
 

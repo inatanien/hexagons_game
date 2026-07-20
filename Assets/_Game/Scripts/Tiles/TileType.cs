@@ -178,6 +178,50 @@ namespace ElfVillage.Tiles
             return false;
         }
 
+        // ── エフェクト／クラスター評価用カテゴリ判定（Session 12） ──────────────
+        // GetEffectiveCategories/HasCategoryはゲームプレイ用（接続判定・デッキ抽選等）で、
+        // visualOnly要素のカテゴリを意図的に除外している（Session 7でedges不整合を避けるために
+        // 導入した設計）。一方、ForestGrowthEvaluator/FlowerClusterEvaluatorのような
+        // 「見た目としてそのカテゴリを持っていれば成長エフェクトのクラスターに参加してよい」
+        // という判定では、visualOnly要素も含めたい。用途が違うため既存APIは変更せず、
+        // 別名の新APIとして追加する。
+
+        /// <summary>
+        /// このタイルが「見た目上」表現しているカテゴリ集合を重複なく返す（visualOnly要素も含む）。
+        /// 森の葉っぱVFX・花びらVFXなど、成長エフェクト／クラスター評価の参加判定専用。
+        /// 描画処理そのものは行わない。接続判定・デッキ抽選などゲームプレイ用途には
+        /// GetEffectiveCategories/HasCategoryを使うこと。
+        /// elements[]に有効な要素が1件以上あればそれを情報源とし、legacyへはフォールバックしない
+        /// （GetEffectiveCategoriesと同じ規則）。
+        /// </summary>
+        public IEnumerable<TileCategory> GetEffectCategories()
+        {
+            var seen = new HashSet<TileCategory>();
+            bool anyElement = false;
+            foreach (var e in EffectiveElements)
+            {
+                anyElement = true;
+                if (seen.Add(e.variant.category))
+                    yield return e.variant.category;
+            }
+            if (anyElement) yield break;
+
+            if (TryGetLegacyCategory(out TileCategory legacy))
+                yield return legacy;
+        }
+
+        /// <summary>
+        /// 指定カテゴリを、visualOnly要素も含めて「エフェクト上」持っているか判定する
+        /// （成長エフェクト・クラスター評価の参加判定専用。描画処理そのものは行わない）。
+        /// ゲームプレイ判定（接続・デッキ抽選等）にはHasCategory()を使うこと。
+        /// </summary>
+        public bool HasEffectCategory(TileCategory category)
+        {
+            foreach (var c in GetEffectCategories())
+                if (c == category) return true;
+            return false;
+        }
+
         /// <summary>
         /// legacyのtileCategory（string）をTileCategoryへ変換する。空文字列や、
         /// TileCategoryのいずれの名前とも一致しない場合はfalseを返し、

@@ -1,6 +1,10 @@
 // 役割: 花畑タイルの連結クラスターを評価し FlowerClusterEvent を発行する。
 //       TilePlacedEvent を購読し、花畑タイルが配置されるたびに BFS でクラスターを計算。
 //       閾値（デフォルト3枚）以上で連結していればイベントを発行する。
+//       クラスター判定は TileType.HasEffectCategory(Field) を使う（Session 12）。
+//       これにより legacy 単一タイル（TileType_Field）と、Field要素を持つ複合タイル
+//       （TileType_ForestFlower等。Field要素がvisualOnlyでも対象になる）が
+//       同じFlowerクラスターとして繋がる。
 
 using System.Collections.Generic;
 using UnityEngine;
@@ -12,9 +16,6 @@ namespace ElfVillage.Tiles
     public class FlowerClusterEvaluator : MonoBehaviour
     {
         [SerializeField] private HexGridManager _gridManager;
-
-        [Header("花畑として扱うタイルタイプ（複数可）")]
-        [SerializeField] private TileType[] _flowerTileTypes;
 
         [Header("花びらが舞うまでの最小連結枚数")]
         [SerializeField] private int _threshold = 3;
@@ -62,12 +63,7 @@ namespace ElfVillage.Tiles
             return result;
         }
 
-        private bool IsFlowerType(TileType type)
-        {
-            if (_flowerTileTypes == null) return false;
-            foreach (var ft in _flowerTileTypes)
-                if (ft == type) return true;
-            return false;
-        }
+        private static bool IsFlowerType(TileType type)
+            => type != null && type.HasEffectCategory(TileCategory.Field);
     }
 }
