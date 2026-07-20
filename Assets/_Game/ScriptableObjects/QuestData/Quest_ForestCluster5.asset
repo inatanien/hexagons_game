@@ -1,0 +1,18 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e07c0b317ad6cf8429e656f74023632d, type: 3}
+  m_Name: Quest_ForestCluster5
+  m_EditorClassIdentifier: 
+  title: "\u68EE\u3092\u80B2\u3066\u3088\u3046"
+  description: "\u68EE\u30BF\u30A4\u30EB\u30925\u679A\u3064\u306A\u3052\u3066\u3001\u5927\u304D\u306A\u68EE\u3092\u80B2\u3066\u307E\u3057\u3087\u3046\u3002"
+  targetCategory: 0
+  targetCount: 5
