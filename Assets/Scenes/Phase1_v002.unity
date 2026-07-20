@@ -3785,6 +3785,7 @@ MonoBehaviour:
   _windDelay: 5
   _windDuration: 3
   _windInterval: 20
+  _forestLeafBaseColor: {r: 0.13, g: 0.55, b: 0.13, a: 1}
 --- !u!4 &1015676106
 Transform:
   m_ObjectHideFlags: 0
@@ -3813,8 +3814,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _gridManager: {fileID: 1774834703}
-  _forestTileTypes:
-  - {fileID: 11400000, guid: e3fc723b1d653774299fd4efd81b82a1, type: 2}
 --- !u!114 &1015676108
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -3932,6 +3931,9 @@ MonoBehaviour:
   _emitIntervalMax: 0.7
   _emitCountMin: 1
   _emitCountMax: 3
+  _boostStartSize: 7
+  _boostMaxSize: 25
+  _boostMaxMultiplier: 4
 --- !u!114 &1015676115
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -3945,8 +3947,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _gridManager: {fileID: 1774834703}
-  _flowerTileTypes:
-  - {fileID: 11400000, guid: 3182f2efabe78e4419dc8f286e182eaa, type: 2}
   _threshold: 3
 --- !u!114 &1015676116
 MonoBehaviour:
