@@ -21,6 +21,8 @@ namespace ElfVillage.Spirits
         public const float ObserveTreeMaxDuration = 6f;
         public const float SleepMinDuration       = 6f;
         public const float SleepMaxDuration       = 10f;
+        public const float StretchMinDuration     = 1.0f;
+        public const float StretchMaxDuration     = 1.5f;
 
         /// <summary>
         /// 次の状態を決める。random01は0〜1の正規化乱数（範囲外・NaNは安全に丸める）。
@@ -44,7 +46,11 @@ namespace ElfVillage.Spirits
                     return r < 0.70f ? SpiritState.Idle : SpiritState.Wander;
 
                 case SpiritState.Sleep:
-                    // 目覚めたら必ずIdleへ戻る（いきなり動き出さない）。
+                    // 目覚めたら必ず伸びをしてからIdleへ戻る（いきなり動き出さない）。
+                    return SpiritState.Stretch;
+
+                case SpiritState.Stretch:
+                    // 伸びの後は必ずIdleへ。StretchへはSleepからしか入らない一方通行。
                     return SpiritState.Idle;
 
                 default:
@@ -64,6 +70,7 @@ namespace ElfVillage.Spirits
                 case SpiritState.Wander:      return Mathf.Lerp(WanderMinDuration,      WanderMaxDuration,      r);
                 case SpiritState.ObserveTree: return Mathf.Lerp(ObserveTreeMinDuration, ObserveTreeMaxDuration, r);
                 case SpiritState.Sleep:       return Mathf.Lerp(SleepMinDuration,       SleepMaxDuration,       r);
+                case SpiritState.Stretch:     return Mathf.Lerp(StretchMinDuration,     StretchMaxDuration,     r);
                 default:                      return Mathf.Lerp(IdleMinDuration,        IdleMaxDuration,        r);
             }
         }
@@ -126,6 +133,83 @@ namespace ElfVillage.Spirits
 
             float t = Mathf.Clamp01(e / d);
             return t * t * (3f - 2f * t); // smoothstep（[0,1]で単調増加）
+        }
+
+        // ══ Stage 10: 演出用の計算 ═══════════════════════════════════════
+
+        /// <summary>
+        /// 起床時の「伸び」のスケール倍率（Visualルートへ乗算する）。
+        /// 前半は縦に伸びて横が縮み、後半は横へふわっと広がってから元へ戻る。
+        /// progress 0 と 1 では必ず (1,1,1) を返すため、途中終了しても変形が残らない。
+        /// ゴム・液体的に見えないよう変形量は控えめ（既定で最大±約12%）。
+        /// </summary>
+        public static Vector3 ComputeStretchScale(float progress, float intensity = 0.12f)
+        {
+            float p = Safe01(progress);
+            float k = Mathf.Abs(SafeFinite(intensity));
+
+            // sin(2πp) は 0 → +1 → 0 → -1 → 0 と連続に変化する。
+            // 前半(0〜0.5)は正で縦に伸び横が縮み、後半(0.5〜1)は負に転じて横へ広がる。
+            // 中間で符号を切り替える実装だとスケールが不連続に飛んで「カクッ」と見えるため、
+            // 1本の連続した波で表現している。p=0,0.5,1 では必ず0になり変形が残らない。
+            float wave = Mathf.Sin(p * Mathf.PI * 2f);
+
+            float vertical   = 1f + k * wave;
+            float horizontal = 1f - k * wave * 0.6f; // 横は縦より控えめに反応させる
+
+            return new Vector3(horizontal, vertical, horizontal);
+        }
+
+        /// <summary>
+        /// 移動中の跳ねによるY方向オフセット。
+        /// progress 0 と 1 で必ず0を返すため、状態が終わるたびにY座標が蓄積しない。
+        /// 戻り値は必ず 0 以上 hopHeight 以下。
+        /// </summary>
+        public static float ComputeHopOffset(float progress, int hopCount, float hopHeight)
+        {
+            float p = Safe01(progress);
+            float h = SafeFinite(hopHeight);
+            if (h <= 0f) return 0f;
+
+            // 不正なhopCountは安全な既定値へ倒す（0以下・極端に大きい値を弾く）。
+            int count = (hopCount >= 1 && hopCount <= 20) ? hopCount : 2;
+
+            // |sin| をcount回繰り返すことで、count回の跳ねになる。
+            // p=0,1 では sin(0)=sin(count*PI)=0 なので必ず接地する。
+            float wave = Mathf.Abs(Mathf.Sin(p * Mathf.PI * count));
+
+            // 移動の始点・終点付近では跳ねを弱め、helper的に自然な立ち上がりにする。
+            float envelope = Mathf.Sin(p * Mathf.PI);
+
+            float offset = h * wave * envelope;
+            return Mathf.Clamp(offset, 0f, h);
+        }
+
+        /// <summary>ObserveTree中に1回だけ行う小さなリアクションの種類。</summary>
+        public enum ObserveReaction
+        {
+            /// <summary>少し首を傾げる。</summary>
+            TiltHead = 0,
+            /// <summary>その場で小さく1回跳ねる。</summary>
+            SmallHop = 1,
+        }
+
+        /// <summary>
+        /// リアクションの種類を選ぶ。random01は0〜1の正規化乱数（不正値は安全に丸める）。
+        /// 定義済みの種類しか返さない。まずは50%ずつ。
+        /// </summary>
+        public static ObserveReaction PickObserveReaction(float random01)
+            => Safe01(random01) < 0.5f ? ObserveReaction.TiltHead : ObserveReaction.SmallHop;
+
+        /// <summary>
+        /// リアクションの進行度（0〜1）に対する首の傾き角（度）。
+        /// 開始・終了で必ず0になるため、状態終了時に傾きが残らない。
+        /// </summary>
+        public static float ComputeTiltAngle(float progress, float maxAngleDeg)
+        {
+            float p = Safe01(progress);
+            float a = SafeFinite(maxAngleDeg);
+            return Mathf.Sin(p * Mathf.PI) * a;
         }
 
         // ── 入力の安全化 ──────────────────────────────────────────────

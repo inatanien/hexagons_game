@@ -42,6 +42,24 @@ namespace ElfVillage.Spirits
         [Tooltip("接地からの浮き量（綿毛なので少しだけ浮く）")]
         [SerializeField] private float _hoverHeight       = 0.35f;
 
+        [Header("跳ね移動（Wander/ObserveTreeの移動中）")]
+        [Tooltip("1回の移動あたりの跳ね回数")]
+        [SerializeField] private int   _hopCount  = 2;
+        [Tooltip("跳ねの高さ。体高(約0.15)の15〜30%を目安にする")]
+        [SerializeField] private float _hopHeight = 0.038f;
+        [Tooltip("着地時に少し潰れる量（Visualルートのみに適用）")]
+        [SerializeField] private float _hopSquash = 0.10f;
+
+        [Header("起床時の伸び / ObserveTreeのリアクション")]
+        [Tooltip("Stretchの変形量。大きくするとゴム的になるので控えめにする")]
+        [SerializeField] private float _stretchIntensity   = 0.12f;
+        [Tooltip("首を傾げる最大角度（度）")]
+        [SerializeField] private float _tiltMaxAngleDeg    = 16f;
+        [Tooltip("リアクション1回の長さ（秒）")]
+        [SerializeField] private float _reactionDuration   = 0.9f;
+        [Tooltip("その場で小さく跳ねるリアクションの高さ")]
+        [SerializeField] private float _reactionHopHeight  = 0.05f;
+
         // ── home森（生成時に確定し、別の森では変更しない） ─────────────
         private readonly List<HexTile> _homeTiles = new();
         private Vector3 _homeCenter;
@@ -59,6 +77,12 @@ namespace ElfVillage.Spirits
         private bool    _isMoving;
 
         private float _swayPhase;
+
+        // ObserveTree中のリアクション（1回のObserveTreeにつき最大1回だけ実行する）
+        private SpiritBehaviorMath.ObserveReaction _reaction;
+        private float _reactionStartTime;   // このObserveTree内での開始時刻（state経過秒）
+        private bool  _reactionScheduled;   // 今回のObserveTreeでリアクションを予定したか
+        private bool  _reactionFinished;    // 既に再生し終えたか
 
         // ランタイム生成物（OnDestroyで破棄する）
         private readonly List<Material> _runtimeMaterials = new();
@@ -123,10 +147,18 @@ namespace ElfVillage.Spirits
 
         private void EnterState(SpiritState next)
         {
+            // 前の状態の演出（傾き・変形・跳ねの高さ）を必ずここで打ち消してから次へ進む。
+            // これにより、どの状態を途中で抜けても表示が残らない。
+            ResetVisualPose();
+
             _state         = next;
             _stateElapsed  = 0f;
             _stateDuration = SpiritBehaviorMath.ComputeStateDuration(next, Random.value);
             _isMoving      = false;
+
+            _reactionScheduled = false;
+            _reactionFinished  = false;
+            _reactionStartTime = 0f; // 前回のObserveTreeの開始時刻を持ち越さない
 
             switch (next)
             {
@@ -137,13 +169,27 @@ namespace ElfVillage.Spirits
 
                 case SpiritState.ObserveTree:
                     BeginMove(PickObserveSpot());
+                    // 到着後に1回だけ行うリアクションを、この時点で決めておく
+                    // （乱数はここで生成し、純粋関数へ渡す）。
+                    _reaction          = SpiritBehaviorMath.PickObserveReaction(Random.value);
+                    _reactionScheduled = true;
                     break;
 
                 case SpiritState.Idle:
                 case SpiritState.Sleep:
-                    // その場に留まる（移動しない）。
+                case SpiritState.Stretch:
+                    // その場に留まる（水平移動しない）。
                     break;
             }
+        }
+
+        /// <summary>Visualルートの回転・スケールを既定へ戻す（演出の残留を防ぐ単一のリセット地点）。</summary>
+        private void ResetVisualPose()
+        {
+            if (_bodyRoot == null) return;
+            _bodyRoot.localRotation = Quaternion.identity;
+            _bodyRoot.localScale    = Vector3.one;
+            _bodyRoot.localPosition = Vector3.zero;
         }
 
         private void BeginMove(Vector3 target)
@@ -184,25 +230,53 @@ namespace ElfVillage.Spirits
             if (_isMoving)
             {
                 float p = SpiritBehaviorMath.ComputeMoveProgress(_stateElapsed, _stateDuration);
-                transform.position = Vector3.Lerp(_moveFrom, _moveTo, p);
+
+                // 水平移動は従来どおりLerp＋イージング（home範囲内の保証はここで維持される）。
+                // 跳ねはY方向の一時オフセットとして上乗せするだけなので、
+                // progress=1で必ず0に戻り、状態をまたいでY座標が蓄積しない。
+                var pos = Vector3.Lerp(_moveFrom, _moveTo, p);
+                pos.y += SpiritBehaviorMath.ComputeHopOffset(p, _hopCount, _hopHeight);
+                transform.position = pos;
+
+                ApplyHopSquash(p);
 
                 var flat = _moveTo - _moveFrom;
                 flat.y = 0f;
                 if (flat.sqrMagnitude > 0.0001f)
                     transform.rotation = Quaternion.LookRotation(flat.normalized);
 
-                if (p >= 1f) _isMoving = false; // 到着後はその場で残り時間を過ごす（ワープしない）
+                if (p >= 1f)
+                {
+                    _isMoving = false;          // 到着後はその場で残り時間を過ごす（ワープしない）
+                    transform.position = _moveTo; // 跳ねのオフセットを完全に清算して接地させる
+                    ResetVisualPose();
+                }
             }
-            else if (_state == SpiritState.Idle)
+            else
             {
-                // その場で小さく上下に揺れる。
-                var pos = transform.position;
-                pos.y = GroundedY() + SpiritBehaviorMath.ComputeIdleSway(
-                    Time.time * _idleSwaySpeed, _swayPhase, _idleSwayAmplitude);
-                transform.position = pos;
-            }
+                switch (_state)
+                {
+                    case SpiritState.Idle:
+                        // その場で小さく上下に揺れる。
+                        var idlePos = transform.position;
+                        idlePos.y = GroundedY() + SpiritBehaviorMath.ComputeIdleSway(
+                            Time.time * _idleSwaySpeed, _swayPhase, _idleSwayAmplitude);
+                        transform.position = idlePos;
+                        break;
 
-            ApplySleepPose();
+                    case SpiritState.Sleep:
+                        ApplySleepPose();
+                        break;
+
+                    case SpiritState.Stretch:
+                        ApplyStretchPose();
+                        break;
+
+                    case SpiritState.ObserveTree:
+                        ApplyObserveReaction();
+                        break;
+                }
+            }
 
             if (_stateElapsed >= _stateDuration)
                 EnterState(SpiritBehaviorMath.DecideNextState(_state, Random.value));
@@ -212,8 +286,67 @@ namespace ElfVillage.Spirits
         private void ApplySleepPose()
         {
             if (_bodyRoot == null) return;
-            float target = _state == SpiritState.Sleep ? 0.82f : 1f;
-            _bodyRoot.localScale = Vector3.Lerp(_bodyRoot.localScale, Vector3.one * target, Time.deltaTime * 3f);
+            _bodyRoot.localScale = Vector3.Lerp(_bodyRoot.localScale, Vector3.one * 0.82f, Time.deltaTime * 3f);
+        }
+
+        /// <summary>起床時の伸び。純粋関数の結果をVisualルートのスケールへそのまま反映する。</summary>
+        private void ApplyStretchPose()
+        {
+            if (_bodyRoot == null) return;
+            float p = _stateDuration > 0f ? Mathf.Clamp01(_stateElapsed / _stateDuration) : 1f;
+            _bodyRoot.localScale = SpiritBehaviorMath.ComputeStretchScale(p, _stretchIntensity);
+        }
+
+        /// <summary>移動中の着地タイミングで軽く潰れる（Visualルートのみ・体は動かさない）。</summary>
+        private void ApplyHopSquash(float progress)
+        {
+            if (_bodyRoot == null || _hopSquash <= 0f) return;
+
+            // 跳ねの高さが低いほど「着地している」とみなして潰す。
+            float h = _hopHeight > 0f
+                ? SpiritBehaviorMath.ComputeHopOffset(progress, _hopCount, _hopHeight) / _hopHeight
+                : 0f;
+            float squash = _hopSquash * (1f - h);
+            _bodyRoot.localScale = new Vector3(1f + squash * 0.5f, 1f - squash, 1f + squash * 0.5f);
+        }
+
+        /// <summary>
+        /// ObserveTree中に1回だけ小さなリアクションを再生する。
+        /// 新しいサブ状態機械は作らず、経過時間の窓に入っているかだけで判定する。
+        /// </summary>
+        private void ApplyObserveReaction()
+        {
+            if (_bodyRoot == null || !_reactionScheduled || _reactionFinished) return;
+
+            // 到着してから少し間を置いて始める（眺めてから反応する形にする）。
+            if (_reactionStartTime <= 0f)
+                _reactionStartTime = Mathf.Min(_stateElapsed + 0.4f, Mathf.Max(0f, _stateDuration - _reactionDuration));
+
+            float t = _stateElapsed - _reactionStartTime;
+            if (t < 0f) return;
+
+            if (t >= _reactionDuration)
+            {
+                // 1回で終了。以後このObserveTree中は再生しない（連続実行を防ぐ）。
+                _reactionFinished = true;
+                ResetVisualPose();
+                return;
+            }
+
+            float p = _reactionDuration > 0f ? Mathf.Clamp01(t / _reactionDuration) : 1f;
+
+            if (_reaction == SpiritBehaviorMath.ObserveReaction.TiltHead)
+            {
+                float angle = SpiritBehaviorMath.ComputeTiltAngle(p, _tiltMaxAngleDeg);
+                _bodyRoot.localRotation = Quaternion.Euler(0f, 0f, angle);
+            }
+            else
+            {
+                // その場で小さく1回だけ跳ねる（本体は動かさずVisualルートを上下させるため、
+                // home範囲の水平位置には一切影響しない）。
+                float y = SpiritBehaviorMath.ComputeHopOffset(p, 1, _reactionHopHeight);
+                _bodyRoot.localPosition = new Vector3(0f, y, 0f);
+            }
         }
 
         private float GroundedY() => _homeCenter.y + _hoverHeight;

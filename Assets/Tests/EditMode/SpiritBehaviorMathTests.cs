@@ -19,7 +19,7 @@ namespace ElfVillage.Tests
     {
         private static readonly SpiritState[] AllStates =
         {
-            SpiritState.Idle, SpiritState.Wander, SpiritState.ObserveTree, SpiritState.Sleep,
+            SpiritState.Idle, SpiritState.Wander, SpiritState.ObserveTree, SpiritState.Sleep, SpiritState.Stretch,
         };
 
         // ── 1. DecideNextStateが定義済みの状態だけを返す ─────────────────
@@ -38,13 +38,39 @@ namespace ElfVillage.Tests
             }
         }
 
+        // ── Stage 10-1. SleepからのみStretchへ遷移する ──────────────────────
+
         [Test]
-        public void DecideNextState_SleepAlwaysReturnsToIdle()
+        public void DecideNextState_SleepAlwaysGoesToStretch()
+        {
+            for (int i = 0; i <= 100; i++)
+                Assert.AreEqual(SpiritState.Stretch,
+                    SpiritBehaviorMath.DecideNextState(SpiritState.Sleep, i / 100f),
+                    "Sleepの後は必ずStretch（伸び）を挟むはず");
+        }
+
+        [Test]
+        public void DecideNextState_StretchIsOnlyReachableFromSleep()
+        {
+            for (int i = 0; i <= 100; i++)
+            {
+                float r = i / 100f;
+                Assert.AreNotEqual(SpiritState.Stretch, SpiritBehaviorMath.DecideNextState(SpiritState.Idle, r));
+                Assert.AreNotEqual(SpiritState.Stretch, SpiritBehaviorMath.DecideNextState(SpiritState.Wander, r));
+                Assert.AreNotEqual(SpiritState.Stretch, SpiritBehaviorMath.DecideNextState(SpiritState.ObserveTree, r));
+                Assert.AreNotEqual(SpiritState.Stretch, SpiritBehaviorMath.DecideNextState(SpiritState.Stretch, r));
+            }
+        }
+
+        // ── Stage 10-2. Stretchは必ずIdleへ遷移する ────────────────────────
+
+        [Test]
+        public void DecideNextState_StretchAlwaysReturnsToIdle()
         {
             for (int i = 0; i <= 100; i++)
                 Assert.AreEqual(SpiritState.Idle,
-                    SpiritBehaviorMath.DecideNextState(SpiritState.Sleep, i / 100f),
-                    "Sleepからは必ずIdleへ戻るはず（いきなり動き出さない）");
+                    SpiritBehaviorMath.DecideNextState(SpiritState.Stretch, i / 100f),
+                    "Stretchの後は必ずIdleへ戻るはず");
         }
 
         [Test]
@@ -56,6 +82,7 @@ namespace ElfVillage.Tests
                 Assert.AreNotEqual(SpiritState.Sleep, SpiritBehaviorMath.DecideNextState(SpiritState.Wander, r));
                 Assert.AreNotEqual(SpiritState.Sleep, SpiritBehaviorMath.DecideNextState(SpiritState.ObserveTree, r));
                 Assert.AreNotEqual(SpiritState.Sleep, SpiritBehaviorMath.DecideNextState(SpiritState.Sleep, r));
+                Assert.AreNotEqual(SpiritState.Sleep, SpiritBehaviorMath.DecideNextState(SpiritState.Stretch, r));
             }
         }
 
@@ -262,6 +289,240 @@ namespace ElfVillage.Tests
             Assert.IsTrue(float.IsFinite(SpiritBehaviorMath.ComputeMoveProgress(float.NaN, float.NaN)));
         }
 
+        // ══ Stage 10: Stretch ═══════════════════════════════════════════
+
+        // ── 3. Stretch補間の開始と終了で元のスケールになる ────────────────
+
+        [Test]
+        public void ComputeStretchScale_StartAndEnd_AreIdentity()
+        {
+            foreach (var p in new[] { 0f, 1f })
+            {
+                var s = SpiritBehaviorMath.ComputeStretchScale(p);
+                Assert.AreEqual(1f, s.x, 0.0001f, $"progress={p} でXが元に戻っていない");
+                Assert.AreEqual(1f, s.y, 0.0001f, $"progress={p} でYが元に戻っていない");
+                Assert.AreEqual(1f, s.z, 0.0001f, $"progress={p} でZが元に戻っていない");
+            }
+        }
+
+        [Test]
+        public void ComputeStretchScale_FirstHalfStretchesVertically_SecondHalfWidens()
+        {
+            var early = SpiritBehaviorMath.ComputeStretchScale(0.25f);
+            Assert.Greater(early.y, 1f, "前半は縦へ伸びるはず");
+            Assert.Less(early.x, 1f, "前半は横が縮むはず");
+
+            var late = SpiritBehaviorMath.ComputeStretchScale(0.75f);
+            Assert.Less(late.y, 1f, "後半は縦が戻り気味になるはず");
+            Assert.Greater(late.x, 1f, "後半は横へふわっと広がるはず");
+        }
+
+        [Test]
+        public void ComputeStretchScale_IsContinuous_NoSuddenPop()
+        {
+            // 回帰テスト: 以前は中間(p=0.5)で符号を反転させていたため、
+            // 縦スケールが 1.11 → 0.88 へ瞬間的に飛び「カクッ」と見える不具合があった。
+            // 隣接するprogress間でスケールが大きく跳ばないことを保証する。
+            const float step = 0.01f;
+            var prev = SpiritBehaviorMath.ComputeStretchScale(0f);
+            for (float p = step; p <= 1f; p += step)
+            {
+                var cur = SpiritBehaviorMath.ComputeStretchScale(p);
+                Assert.LessOrEqual(Mathf.Abs(cur.y - prev.y), 0.02f,
+                    $"progress={p} 付近で縦スケールが不連続に飛んでいる");
+                Assert.LessOrEqual(Mathf.Abs(cur.x - prev.x), 0.02f,
+                    $"progress={p} 付近で横スケールが不連続に飛んでいる");
+                prev = cur;
+            }
+        }
+
+        [Test]
+        public void ComputeStretchScale_PassesThroughNeutralAtMidpoint()
+        {
+            var mid = SpiritBehaviorMath.ComputeStretchScale(0.5f);
+            Assert.AreEqual(1f, mid.x, 0.0001f, "中間では一度等倍を通過するはず");
+            Assert.AreEqual(1f, mid.y, 0.0001f, "中間では一度等倍を通過するはず");
+        }
+
+        [Test]
+        public void ComputeStretchScale_DeformationStaysSmall()
+        {
+            // ゴム・液体的に見えないよう、変形量が過大にならないことを保証する。
+            for (float p = 0f; p <= 1f; p += 0.02f)
+            {
+                var s = SpiritBehaviorMath.ComputeStretchScale(p);
+                Assert.LessOrEqual(Mathf.Abs(s.y - 1f), 0.20f, $"progress={p} で縦の変形が大きすぎる");
+                Assert.LessOrEqual(Mathf.Abs(s.x - 1f), 0.20f, $"progress={p} で横の変形が大きすぎる");
+            }
+        }
+
+        // ── 4・5. 有限値を返す／不正なprogressを安全にClampする ─────────────
+
+        [Test]
+        public void ComputeStretchScale_InvalidProgress_IsClampedAndFinite()
+        {
+            foreach (var p in new[] { float.NaN, float.PositiveInfinity, float.NegativeInfinity, -3f, 7f })
+            {
+                var s = SpiritBehaviorMath.ComputeStretchScale(p);
+                Assert.IsTrue(float.IsFinite(s.x) && float.IsFinite(s.y) && float.IsFinite(s.z),
+                    $"progress={p} で非有限値が返った: {s}");
+            }
+
+            // 範囲外は0/1へClampされるので、結果は等倍になる
+            Assert.AreEqual(1f, SpiritBehaviorMath.ComputeStretchScale(-3f).y, 0.0001f);
+            Assert.AreEqual(1f, SpiritBehaviorMath.ComputeStretchScale(7f).y,  0.0001f);
+        }
+
+        [Test]
+        public void ComputeStretchScale_InvalidIntensity_IsFinite()
+        {
+            foreach (var k in new[] { float.NaN, float.PositiveInfinity, -0.5f })
+            {
+                var s = SpiritBehaviorMath.ComputeStretchScale(0.3f, k);
+                Assert.IsTrue(float.IsFinite(s.x) && float.IsFinite(s.y) && float.IsFinite(s.z));
+            }
+        }
+
+        // ══ Stage 10: Hop ═══════════════════════════════════════════════
+
+        // ── 6. progress 0と1でオフセット0 ───────────────────────────────
+
+        [Test]
+        public void ComputeHopOffset_StartAndEnd_AreZero()
+        {
+            foreach (var count in new[] { 1, 2, 3, 5 })
+            {
+                Assert.AreEqual(0f, SpiritBehaviorMath.ComputeHopOffset(0f, count, 0.05f), 0.0001f,
+                    $"hopCount={count} でprogress=0が接地していない");
+                Assert.AreEqual(0f, SpiritBehaviorMath.ComputeHopOffset(1f, count, 0.05f), 0.0001f,
+                    $"hopCount={count} でprogress=1が接地していない");
+            }
+        }
+
+        // ── 7・8. 中間で0以上、hopHeightを超えない ──────────────────────
+
+        [Test]
+        public void ComputeHopOffset_StaysWithinZeroAndHopHeight()
+        {
+            const float height = 0.05f;
+            bool sawPositive = false;
+
+            for (float p = 0f; p <= 1f; p += 0.005f)
+            {
+                float o = SpiritBehaviorMath.ComputeHopOffset(p, 2, height);
+                Assert.GreaterOrEqual(o, 0f, $"progress={p} で負のオフセット");
+                Assert.LessOrEqual(o, height + 0.0001f, $"progress={p} でhopHeightを超えた");
+                if (o > 0.001f) sawPositive = true;
+            }
+            Assert.IsTrue(sawPositive, "中間のprogressで実際に跳ねている（0より大きい）はず");
+        }
+
+        // ── 9・10. 全範囲で有限値／不正なhopCount・hopHeightでも安全 ────────
+
+        [Test]
+        public void ComputeHopOffset_InvalidInputs_AreHandledSafely()
+        {
+            foreach (var count in new[] { -5, 0, 1000 })
+            {
+                for (float p = 0f; p <= 1f; p += 0.1f)
+                {
+                    float o = SpiritBehaviorMath.ComputeHopOffset(p, count, 0.05f);
+                    Assert.IsTrue(float.IsFinite(o), $"hopCount={count}, progress={p} で非有限値");
+                    Assert.GreaterOrEqual(o, 0f);
+                    Assert.LessOrEqual(o, 0.05f + 0.0001f);
+                }
+            }
+
+            foreach (var h in new[] { 0f, -1f, float.NaN, float.PositiveInfinity })
+            {
+                float o = SpiritBehaviorMath.ComputeHopOffset(0.5f, 2, h);
+                Assert.IsTrue(float.IsFinite(o), $"hopHeight={h} で非有限値");
+                Assert.GreaterOrEqual(o, 0f);
+            }
+
+            foreach (var p in new[] { float.NaN, -2f, 5f })
+            {
+                float o = SpiritBehaviorMath.ComputeHopOffset(p, 2, 0.05f);
+                Assert.IsTrue(float.IsFinite(o), $"progress={p} で非有限値");
+            }
+        }
+
+        // ── 11. 同じ入力から同じ結果を返す ──────────────────────────────
+
+        [Test]
+        public void ComputeHopOffset_IsDeterministic()
+        {
+            for (float p = 0f; p <= 1f; p += 0.07f)
+            {
+                float a = SpiritBehaviorMath.ComputeHopOffset(p, 3, 0.04f);
+                float b = SpiritBehaviorMath.ComputeHopOffset(p, 3, 0.04f);
+                Assert.AreEqual(a, b, 0f, $"progress={p} で結果が一致しない");
+            }
+        }
+
+        // ══ Stage 10: ObserveTreeリアクション ════════════════════════════
+
+        // ── 13. リアクション選択が定義済みの種類だけを返す ────────────────
+
+        [Test]
+        public void PickObserveReaction_ReturnsOnlyDefinedKinds()
+        {
+            var defined = new[]
+            {
+                SpiritBehaviorMath.ObserveReaction.TiltHead,
+                SpiritBehaviorMath.ObserveReaction.SmallHop,
+            };
+
+            for (int i = 0; i <= 100; i++)
+                CollectionAssert.Contains(defined, SpiritBehaviorMath.PickObserveReaction(i / 100f));
+        }
+
+        [Test]
+        public void PickObserveReaction_BothKindsAreReachable()
+        {
+            Assert.AreEqual(SpiritBehaviorMath.ObserveReaction.TiltHead, SpiritBehaviorMath.PickObserveReaction(0.1f));
+            Assert.AreEqual(SpiritBehaviorMath.ObserveReaction.SmallHop, SpiritBehaviorMath.PickObserveReaction(0.9f));
+        }
+
+        // ── 14. 不正な乱数入力を安全に処理する ──────────────────────────
+
+        [Test]
+        public void PickObserveReaction_InvalidRandom_IsHandledSafely()
+        {
+            var defined = new[]
+            {
+                SpiritBehaviorMath.ObserveReaction.TiltHead,
+                SpiritBehaviorMath.ObserveReaction.SmallHop,
+            };
+
+            foreach (var r in new[] { float.NaN, float.PositiveInfinity, float.NegativeInfinity, -9f, 42f })
+                CollectionAssert.Contains(defined, SpiritBehaviorMath.PickObserveReaction(r));
+        }
+
+        // ── 15. リアクション終了時に傾きが元へ戻る ──────────────────────
+
+        [Test]
+        public void ComputeTiltAngle_StartAndEnd_AreZero()
+        {
+            Assert.AreEqual(0f, SpiritBehaviorMath.ComputeTiltAngle(0f, 16f), 0.0001f, "開始時は傾いていないはず");
+            Assert.AreEqual(0f, SpiritBehaviorMath.ComputeTiltAngle(1f, 16f), 0.0001f, "終了時は傾きが残らないはず");
+        }
+
+        [Test]
+        public void ComputeTiltAngle_NeverExceedsMaxAngle_AndIsFinite()
+        {
+            const float max = 16f;
+            for (float p = 0f; p <= 1f; p += 0.01f)
+            {
+                float a = SpiritBehaviorMath.ComputeTiltAngle(p, max);
+                Assert.LessOrEqual(Mathf.Abs(a), max + 0.0001f, $"progress={p} で最大角を超えた");
+                Assert.IsTrue(float.IsFinite(a));
+            }
+
+            foreach (var bad in new[] { float.NaN, float.PositiveInfinity })
+                Assert.IsTrue(float.IsFinite(SpiritBehaviorMath.ComputeTiltAngle(bad, bad)));
+        }
+
         // ══ ForestSpiritSpawner / ForestSpirit ══════════════════════════
 
         private static void InvokeLifecycle(Component c, string methodName)
@@ -302,6 +563,120 @@ namespace ElfVillage.Tests
             foreach (var g in groups)
                 foreach (var t in g)
                     if (t != null) Object.DestroyImmediate(t.gameObject);
+        }
+
+        // ── Stage 10-12・15. リアクションは最大1回／状態終了で表示が元へ戻る ──
+        //    ForestSpiritのUpdateはEditModeで自動実行されないため、内部状態を直接進めて検証する。
+
+        private static ForestSpirit MakeSpirit(out List<HexTile> tiles)
+        {
+            tiles = new List<HexTile> { MakeTileAt(Vector3.zero), MakeTileAt(new Vector3(1f, 0f, 0f)) };
+            var go = new GameObject("TestForestSpirit");
+            var spirit = go.AddComponent<ForestSpirit>();
+            spirit.Initialize(tiles, Vector3.zero, 1.5f, 1.5f, 0.5f);
+            return spirit;
+        }
+
+        private static object GetField(object target, string name)
+            => typeof(ForestSpirit).GetField(name, BindingFlags.NonPublic | BindingFlags.Instance).GetValue(target);
+
+        private static void SetField(object target, string name, object value)
+            => typeof(ForestSpirit).GetField(name, BindingFlags.NonPublic | BindingFlags.Instance).SetValue(target, value);
+
+        private static void Invoke(object target, string name, params object[] args)
+            => typeof(ForestSpirit).GetMethod(name, BindingFlags.NonPublic | BindingFlags.Instance).Invoke(target, args);
+
+        [Test]
+        public void ObserveReaction_RunsAtMostOncePerObserveTree()
+        {
+            var spirit = MakeSpirit(out var tiles);
+            try
+            {
+                Invoke(spirit, "EnterState", SpiritState.ObserveTree);
+                SetField(spirit, "_isMoving", false);
+                SetField(spirit, "_stateDuration", 10f);
+
+                // リアクションが1回走り切るまで時間を進める
+                for (float t = 0f; t <= 6f; t += 0.1f)
+                {
+                    SetField(spirit, "_stateElapsed", t);
+                    Invoke(spirit, "ApplyObserveReaction");
+                }
+                Assert.IsTrue((bool)GetField(spirit, "_reactionFinished"),
+                    "1回のリアクションが完了しているはず");
+
+                // 完了後にさらに時間を進めても、再生されない（何度も連続実行しない）
+                var bodyRoot = (Transform)GetField(spirit, "_bodyRoot");
+                for (float t = 6f; t <= 10f; t += 0.1f)
+                {
+                    SetField(spirit, "_stateElapsed", t);
+                    Invoke(spirit, "ApplyObserveReaction");
+                    Assert.AreEqual(Quaternion.identity, bodyRoot.localRotation,
+                        "リアクション完了後は再度傾かないはず");
+                    Assert.AreEqual(Vector3.zero, bodyRoot.localPosition,
+                        "リアクション完了後は再度跳ねないはず");
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(spirit.gameObject);
+                DestroyTiles(tiles);
+            }
+        }
+
+        [Test]
+        public void EnteringNewState_ResetsRotationScaleAndOffset()
+        {
+            var spirit = MakeSpirit(out var tiles);
+            try
+            {
+                var bodyRoot = (Transform)GetField(spirit, "_bodyRoot");
+
+                // 演出で変形した状態を人工的に作る
+                bodyRoot.localRotation = Quaternion.Euler(0f, 0f, 20f);
+                bodyRoot.localScale    = new Vector3(1.2f, 0.8f, 1.2f);
+                bodyRoot.localPosition = new Vector3(0f, 0.05f, 0f);
+
+                Invoke(spirit, "EnterState", SpiritState.Idle);
+
+                Assert.AreEqual(Quaternion.identity, bodyRoot.localRotation, "状態遷移で傾きが残ってはいけない");
+                Assert.AreEqual(Vector3.one,        bodyRoot.localScale,    "状態遷移で変形が残ってはいけない");
+                Assert.AreEqual(Vector3.zero,       bodyRoot.localPosition, "状態遷移でYオフセットが残ってはいけない");
+            }
+            finally
+            {
+                Object.DestroyImmediate(spirit.gameObject);
+                DestroyTiles(tiles);
+            }
+        }
+
+        [Test]
+        public void StretchPose_AtEndOfState_ReturnsToIdentityScale()
+        {
+            var spirit = MakeSpirit(out var tiles);
+            try
+            {
+                var bodyRoot = (Transform)GetField(spirit, "_bodyRoot");
+                Invoke(spirit, "EnterState", SpiritState.Stretch);
+                SetField(spirit, "_stateDuration", 1.2f);
+
+                // 途中では変形している
+                SetField(spirit, "_stateElapsed", 0.3f);
+                Invoke(spirit, "ApplyStretchPose");
+                Assert.AreNotEqual(Vector3.one, bodyRoot.localScale, "Stretch中は変形しているはず");
+
+                // 終了時には等倍へ戻る
+                SetField(spirit, "_stateElapsed", 1.2f);
+                Invoke(spirit, "ApplyStretchPose");
+                Assert.AreEqual(1f, bodyRoot.localScale.x, 0.0001f);
+                Assert.AreEqual(1f, bodyRoot.localScale.y, 0.0001f);
+                Assert.AreEqual(1f, bodyRoot.localScale.z, 0.0001f);
+            }
+            finally
+            {
+                Object.DestroyImmediate(spirit.gameObject);
+                DestroyTiles(tiles);
+            }
         }
 
         // ── 11. 最初の森イベントで1体だけ生成される ─────────────────────

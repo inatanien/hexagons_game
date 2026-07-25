@@ -20,5 +20,11 @@ namespace ElfVillage.Spirits
         ///   「夜の睡眠」へ接続できるよう、状態名と遷移だけ先に用意してある。
         /// </summary>
         Sleep = 3,
+
+        /// <summary>
+        /// 起床直後の「伸び」。Sleepからのみ入り、Idleへのみ戻る短い状態（Stage 10）。
+        /// 水平移動は行わず、Visualルートのスケール変形だけで表現する。
+        /// </summary>
+        Stretch = 4,
     }
 }
