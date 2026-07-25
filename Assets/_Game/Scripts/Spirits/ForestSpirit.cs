@@ -65,6 +65,24 @@ namespace ElfVillage.Spirits
         [Tooltip("花の開花などを知覚できる水平距離。これより遠い刺激は完全に無視する")]
         [SerializeField] private float _perceptionRadius = 6f;
 
+        [Header("記憶・見慣れ（Stage 12）")]
+        [Tooltip("見慣れ度が半分に薄れるまでの秒数（ゲーム時間）")]
+        [SerializeField] private float _familiarityHalfLife = 60f;
+        [Tooltip("刺激を1回受理するごとに増える見慣れ度")]
+        [SerializeField] private float _familiarityGain     = 1f;
+        [Tooltip("見慣れ度の上限。ここに達すると反応の強さが最小になる")]
+        [SerializeField] private float _familiarityMaximum  = 4f;
+        [Tooltip("見慣れきったときの反応の強さ。0にはせず、小さな反応を必ず残す")]
+        [SerializeField] private float _minReactionScale    = 0.25f;
+        [Tooltip("Reactの最短継続時間。見慣れても一瞬で終わって見えなくならないようにする")]
+        [SerializeField] private float _reactMinDuration    = 0.75f;
+
+        // 刺激種類ごとの見慣れ度。減衰・加算はSpiritMemoryが一元的に扱う。
+        [SerializeField] private SpiritMemory _memory = new();
+
+        // 今回のReactで使う反応の強さ（受理時に、加算前の見慣れ度から算出して保持する）
+        private float _reactScale = 1f;
+
         // ── home森（生成時に確定し、別の森では変更しない） ─────────────
         private readonly List<HexTile> _homeTiles = new();
         private Vector3 _homeCenter;
@@ -166,10 +184,20 @@ namespace ElfVillage.Spirits
         private void OnEnable()  => EventBus.Subscribe<SpiritStimulusEvent>(OnStimulus);
         private void OnDisable() => EventBus.Unsubscribe<SpiritStimulusEvent>(OnStimulus);
 
-        private void OnStimulus(SpiritStimulusEvent evt)
-        {
-            var stimulus = evt.Stimulus;
+        private void OnStimulus(SpiritStimulusEvent evt) => HandleStimulus(evt.Stimulus);
 
+        /// <summary>
+        /// 生成直後に、自分を生み出した森の成長を最初の体験として受け取る（Spawnerから呼ぶ）。
+        /// ★EventBus経由だけに任せると、SpawnerとRelayのどちらが先に購読しているかで
+        ///   「生成イベントを体験するか否か」が変わってしまう（購読順依存）。
+        ///   生成した本人が明示的に渡すことで、購読順に関わらず必ず最初の体験になる。
+        ///   この直後にRelay経由で同じ刺激が届いても、React中の同優先度として弾かれるため
+        ///   二重に記憶されることはない。
+        /// </summary>
+        internal void ReceiveInitialStimulus(SpiritStimulus stimulus) => HandleStimulus(stimulus);
+
+        private void HandleStimulus(SpiritStimulus stimulus)
+        {
             if (!Accepts(stimulus)) return;
 
             // SleepとStretchは外部刺激で中断しない。
@@ -178,7 +206,24 @@ namespace ElfVillage.Spirits
             int incoming = SpiritBehaviorMath.GetStimulusPriority(stimulus.Kind);
             if (!SpiritBehaviorMath.ShouldInterrupt(_currentPriority, incoming)) return;
 
+            // ここまでの判定を全て通過した＝実際に知覚して反応する刺激だけが記憶に残る。
+            // 受理しなかった刺激（home外の森・知覚距離外の花・Sleep/Stretch中・同優先度など）は
+            // 上のreturnで抜けているため、Reinforceへ到達しない。
+            //
+            // 処理順（Stage 12の仕様）:
+            //   1. 現時点まで減衰させた見慣れ度を取得
+            //   2. その「加算前」の値から今回の反応の強さを算出
+            //   3. Reactを開始
+            //   4. 今回の体験分を加算
+            // 先に加算すると初回の反応まで弱まってしまうため、この順序を守る。
+            float now      = Time.time;
+            float familiar = _memory.GetFamiliarity(stimulus.Kind, now, _familiarityHalfLife);
+            _reactScale    = SpiritBehaviorMath.ComputeReactionScale(
+                                 familiar, _familiarityMaximum, _minReactionScale);
+
             BeginReact(stimulus, incoming);
+
+            _memory.Reinforce(stimulus.Kind, now, _familiarityHalfLife, _familiarityGain, _familiarityMaximum);
         }
 
         /// <summary>この刺激が自分に関係するか（種類ごとの受理条件）。</summary>
@@ -246,6 +291,10 @@ namespace ElfVillage.Spirits
                     // 刺激の方向を向く。中断されたWanderの目的地は_isMoving=falseにより破棄され、
                     // React後はIdleから改めて目的地を選び直す（古い目的地へは戻らない）。
                     FaceTowards(_reactLookTarget);
+
+                    // 見慣れているほど短く終わる。ただし最短時間を下回らせず、
+                    // 反応が一瞬で消えて視認できなくなるのを防ぐ（Stage 12）。
+                    _stateDuration = Mathf.Max(_reactMinDuration, _stateDuration * _reactScale);
                     break;
 
                 case SpiritState.Idle:
@@ -397,14 +446,16 @@ namespace ElfVillage.Spirits
 
             float p = _stateDuration > 0f ? Mathf.Clamp01(_stateElapsed / _stateDuration) : 1f;
 
+            // 見慣れているほど角度・高さが小さくなる（Stage 12）。
+            // 反応の「形」は変えず、大きさだけを_reactScaleで縮める。
             if (_reactKind == SpiritReactionKind.TiltHead)
             {
-                float angle = SpiritBehaviorMath.ComputeTiltAngle(p, _tiltMaxAngleDeg);
+                float angle = SpiritBehaviorMath.ComputeTiltAngle(p, _tiltMaxAngleDeg * _reactScale);
                 _bodyRoot.localRotation = Quaternion.Euler(0f, 0f, angle);
             }
             else
             {
-                float y = SpiritBehaviorMath.ComputeHopOffset(p, 1, _reactionHopHeight);
+                float y = SpiritBehaviorMath.ComputeHopOffset(p, 1, _reactionHopHeight * _reactScale);
                 _bodyRoot.localPosition = new Vector3(0f, y, 0f);
             }
         }

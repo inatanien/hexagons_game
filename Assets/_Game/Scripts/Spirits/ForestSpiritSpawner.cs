@@ -37,6 +37,13 @@ namespace ElfVillage.Spirits
             {
                 // 最初に対象となった森クラスターにだけ1体生成する。
                 SpawnSpirit(evt.AffectedTiles, center, extentX, extentZ);
+
+                // 生まれた森の成長を、最初の体験として明示的に渡す。
+                // EventBus経由（Relay）だけに任せると、SpawnerとRelayの購読順によって
+                // 体験するかどうかが変わってしまうため、ここで決定的に確定させる。
+                // Relay経由で同じ刺激が続けて届いても、React中の同優先度として弾かれる。
+                _spirit.ReceiveInitialStimulus(
+                    new SpiritStimulus(SpiritStimulusKind.ForestGrew, center, evt.AffectedTiles));
                 return;
             }
 

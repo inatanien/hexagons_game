@@ -278,6 +278,65 @@ namespace ElfVillage.Spirits
         private static bool IsFinite(Vector3 v)
             => float.IsFinite(v.x) && float.IsFinite(v.y) && float.IsFinite(v.z);
 
+        // ══ Stage 12: 記憶（見慣れ度）═══════════════════════════════════
+
+        /// <summary>
+        /// 見慣れ度の指数減衰。halfLifeSeconds経過するごとに半分になる。
+        /// 経過0なら値は変わらず、経過が増えるほど単調非増加。負値は返さない。
+        /// 不正な入力（NaN・Infinity・負の経過時間・0以下の半減期）は安全に処理する。
+        /// </summary>
+        public static float ComputeDecayedFamiliarity(float current, float elapsedSeconds, float halfLifeSeconds)
+        {
+            float c = SafeFinite(current);
+            if (c <= 0f) return 0f;
+
+            float e = SafeFinite(elapsedSeconds);
+            if (e <= 0f) return c; // 経過0以下（負の経過含む）では減衰させない
+
+            // 半減期が不正なら減衰させない（記憶が突然消えるより据え置きの方が安全）
+            if (!float.IsFinite(halfLifeSeconds) || halfLifeSeconds <= 0f) return c;
+
+            float decayed = c * Mathf.Pow(0.5f, e / halfLifeSeconds);
+            return float.IsFinite(decayed) && decayed > 0f ? decayed : 0f;
+        }
+
+        /// <summary>
+        /// 体験1回ぶんの加算。上限を超えず、負値も返さない。
+        /// 負のgainでは記憶が減らない（0として扱う）。
+        /// </summary>
+        public static float ComputeFamiliarityGain(float current, float gain, float maximum)
+        {
+            float max = SafeFinite(maximum);
+            if (max <= 0f) return 0f;
+
+            float c = Mathf.Clamp(SafeFinite(current), 0f, max);
+            float g = SafeFinite(gain);
+            if (g < 0f) g = 0f; // 負のgainで記憶を減らさない
+
+            return Mathf.Clamp(c + g, 0f, max);
+        }
+
+        /// <summary>
+        /// 見慣れ度からリアクションの強さ（0より大きく1以下）を求める。
+        /// 見慣れていないほど1に近く、見慣れるほどminimumScaleに近づく（単調非増加）。
+        /// 完全に0にはしない＝見慣れても小さな反応は必ず残る（Stage 12の方針）。
+        /// </summary>
+        public static float ComputeReactionScale(float familiarity, float maximumFamiliarity, float minimumScale)
+        {
+            // minimumScaleは0より大きい値に丸める（完全無視を作らないため）
+            float min = SafeFinite(minimumScale);
+            if (!(min > 0f)) min = 0.01f;
+            if (min > 1f) min = 1f;
+
+            float max = SafeFinite(maximumFamiliarity);
+            if (max <= 0f) return 1f; // 上限が無効なら「まだ見慣れていない」扱い
+
+            float f = Mathf.Clamp(SafeFinite(familiarity), 0f, max);
+            float t = f / max; // 0（未経験）〜1（完全に見慣れた）
+
+            return Mathf.Lerp(1f, min, t);
+        }
+
         // ── 入力の安全化 ──────────────────────────────────────────────
 
         /// <summary>0〜1へ丸める。NaN・Infinityは0として扱う。</summary>
