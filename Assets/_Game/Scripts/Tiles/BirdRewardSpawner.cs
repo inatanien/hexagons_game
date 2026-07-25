@@ -10,9 +10,11 @@
 //       離れた高所に置かれており、transform.positionをそのまま使うとプレイヤーから
 //       見えない位置に鳥が出てしまう。盤面の中心は常にワールド原点であるため、
 //       原点の方が安全なフォールバックになる）。
-//       報酬解放後も森が成長し続けた場合、既に出現済みの鳥の飛行範囲もその都度
-//       広げる（RewardBird.UpdateBoundsで中心・範囲だけを差し替え、周波数・位相・
-//       経過時間は据え置くため不自然な飛躍は起きない）。
+//       鳥は「報酬を達成した時点の森クラスター」に住み着く（Stage 8）。生成時にその森の
+//       タイル集合をhomeとして各RewardBirdへ渡し、以後は鳥自身がhomeと重なる成長イベントの
+//       ときだけ範囲を広げる（RewardBird.TryFollowForestGrowth）。別の場所に森を作っても
+//       既存の鳥は吸い寄せられない。Spawnerが持つ「直近の森」は次に鳥を生成するときの
+//       候補地点にすぎず、生成済みの鳥へ後から影響を与えることはない。
 //       CoreのTimeOfDayEventも購読し、夜（Night）になったら各鳥をそれぞれの現在地から
 //       一番近い森タイルへ飛ばして隠し、朝（Morning）になったら同じ地点から通常の
 //       飛行位置へ戻す（RewardBird.Hide/Showの単純な逆再生）。そのため森タイルの
@@ -58,6 +60,8 @@ namespace ElfVillage.Tiles
 
         private readonly HashSet<string> _spawnedRewardIds = new();
         private readonly List<Vector3>   _forestTilePositions = new();
+        // 次に鳥を生成するときのhome候補（生成済みの鳥へは影響しない）。
+        private readonly List<HexTile>   _lastForestTiles = new();
         private Vector3 _lastForestCenter;
         private float   _lastForestExtentX;
         private float   _lastForestExtentZ;
@@ -94,12 +98,14 @@ namespace ElfVillage.Tiles
             var min = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
             var max = new Vector3(float.MinValue, float.MinValue, float.MinValue);
             _forestTilePositions.Clear();
+            _lastForestTiles.Clear();
             foreach (var tile in evt.AffectedTiles)
             {
                 var p = tile.transform.position;
                 min = Vector3.Min(min, p);
                 max = Vector3.Max(max, p);
                 _forestTilePositions.Add(p);
+                _lastForestTiles.Add(tile);
             }
 
             var center = (min + max) * 0.5f;
@@ -110,10 +116,12 @@ namespace ElfVillage.Tiles
             _lastForestExtentZ = Mathf.Max(extent.z * 0.5f + _extentMargin, _minExtent);
             _hasForestBounds   = true;
 
-            // 既に出現済みの鳥がいれば、成長した範囲へ追従させる（周波数・位相は据え置き）。
+            // 生成済みの鳥へは無条件に適用しない（Stage 8）。
+            // 各鳥が「自分のhome森と重なる成長か」を判定し、自分の森が育ったときだけ範囲を広げる。
+            // 別の場所に新しい森ができても、既存の鳥はそちらへ移動しない。
             var existingBirds = GetComponentsInChildren<RewardBird>(true);
             foreach (var bird in existingBirds)
-                bird.UpdateBounds(FlightCenter(center), _lastForestExtentX, _lastForestExtentZ);
+                bird.TryFollowForestGrowth(evt.AffectedTiles, FlightCenter(center), _lastForestExtentX, _lastForestExtentZ);
         }
 
         private Vector3 FlightCenter(Vector3 forestCenter) =>
@@ -134,7 +142,12 @@ namespace ElfVillage.Tiles
             var birds = GetComponentsInChildren<RewardBird>(true);
             foreach (var bird in birds)
             {
-                Vector3 hidePoint = FindNearestForestTile(bird.transform.position);
+                // 隠れ先は「その鳥自身のhome森」の中から選ぶ（Stage 8）。
+                // Spawnerの_forestTilePositionsは直近に成長した別の森かもしれないため、
+                // homeを持つ鳥がそちらへ隠れに行かないようにする。
+                if (!bird.TryGetNearestHomeTilePosition(bird.transform.position, out Vector3 hidePoint))
+                    hidePoint = FindNearestForestTile(bird.transform.position); // home未設定時のフォールバック
+
                 hidePoint.y += _hideHeightOffset;
                 bird.Hide(hidePoint);
             }
@@ -176,16 +189,19 @@ namespace ElfVillage.Tiles
             if (_spawnedRewardIds.Contains(evt.RewardId)) return;
             _spawnedRewardIds.Add(evt.RewardId);
 
+            // 生成時点の森クラスターをスナップショットとして各鳥へ渡す（Stage 8）。
+            // 以後Spawnerが別の森を記憶しても、この値は既に鳥側へコピー済みなので影響しない。
             Vector3 baseCenter = _hasForestBounds ? FlightCenter(_lastForestCenter) : new Vector3(0f, _flightHeight, 0f);
             float   extentX    = _hasForestBounds ? _lastForestExtentX : _minExtent;
             float   extentZ    = _hasForestBounds ? _lastForestExtentZ : _minExtent;
+            var     homeTiles  = new List<HexTile>(_lastForestTiles);
 
             int count = Random.Range(_minBirdCount, _maxBirdCount + 1);
             for (int i = 0; i < count; i++)
-                SpawnBird(baseCenter, extentX, extentZ, i);
+                SpawnBird(baseCenter, extentX, extentZ, i, homeTiles);
         }
 
-        private void SpawnBird(Vector3 baseCenter, float extentX, float extentZ, int index)
+        private void SpawnBird(Vector3 baseCenter, float extentX, float extentZ, int index, IReadOnlyList<HexTile> homeTiles)
         {
             var go = BuildBirdVisual();
             go.transform.SetParent(transform, true);
@@ -201,6 +217,7 @@ namespace ElfVillage.Tiles
 
             var bird = go.AddComponent<RewardBird>();
             bird.Init(baseCenter, centerOffset, extentX, extentZ, freqX, freqZ, _bobAmplitude, bobFrequency, phaseX, phaseZ);
+            bird.SetHome(homeTiles); // この鳥が住み着く森を確定させる（以後Spawner側の変化に影響されない）
         }
 
         // ── 見た目（既存アセットに鳥モデルがないため、簡易メッシュで代用） ────

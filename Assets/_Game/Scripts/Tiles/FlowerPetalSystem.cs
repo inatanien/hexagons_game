@@ -30,8 +30,9 @@ namespace ElfVillage.Tiles
         [Tooltip("最大倍率（_emitCountMin/_emitCountMaxにこの倍率を掛けた値が上限になる）")]
         [SerializeField] private float _boostMaxMultiplier = 4f;
 
-        // 直近のFlowerClusterEventで計算した最大クラスターサイズ（EmitRoutineの発生数スケーリングに使う）
-        private int _currentMaxClusterSize;
+        // 直近のFlowerClusterEventで計算した最大クラスターサイズ（EmitRoutineの発生数スケーリングに使う）。
+        // Stage 8以降は重み付き（複合タイルはareaWeightで按分）なのでfloat。
+        private float _currentMaxWeightedSize;
 
         // 閾値ごとの色定義
         private readonly struct PetalTier
@@ -84,11 +85,16 @@ namespace ElfVillage.Tiles
 
             UpdateClusters(evt.Tiles);
 
-            // 最大クラスターサイズでティアを切り替える
-            int maxSize = 0;
+            // 最大クラスターサイズでティアを切り替える。
+            // Stage 8以降は重み付きで評価するため、複合タイル（花0.3＋森0.7等）だけの
+            // クラスターでは色ティアが増えにくくなる。単一属性の花畑は1.0なので挙動不変。
+            float maxSize = 0f;
             foreach (var c in _clusters)
-                if (c.Count > maxSize) maxSize = c.Count;
-            _currentMaxClusterSize = maxSize;
+            {
+                float w = TerrainEffectWeight.SumFor(c, TileCategory.Field);
+                if (w > maxSize) maxSize = w;
+            }
+            _currentMaxWeightedSize = maxSize;
 
             foreach (var t in _tiers)
                 t.go.SetActive(maxSize >= t.threshold);
@@ -217,7 +223,8 @@ namespace ElfVillage.Tiles
 
                 // クラスターが大きいほど1バーストの発生数を増やす（_boostMaxSizeで頭打ち）。
                 // WorldBreathSystem.CalcWindStrengthと同じ「Lerpで段階的に強度を上げ上限で頭打ち」設計。
-                float mult    = CalcCountMultiplier(_currentMaxClusterSize, _boostStartSize, _boostMaxSize, _boostMaxMultiplier);
+                // CalcCountMultiplierは既存の公開API（int）のまま維持し、重み付きサイズは切り捨てて渡す。
+                float mult    = CalcCountMultiplier(Mathf.FloorToInt(_currentMaxWeightedSize), _boostStartSize, _boostMaxSize, _boostMaxMultiplier);
                 int minCount  = Mathf.Max(_emitCountMin, Mathf.RoundToInt(_emitCountMin * mult));
                 int maxCount  = Mathf.Max(minCount,      Mathf.RoundToInt(_emitCountMax * mult));
 

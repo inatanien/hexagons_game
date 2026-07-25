@@ -268,6 +268,189 @@ namespace ElfVillage.Tests
             }
         }
 
+        // ── Stage 8: 住み着いた森への固定 ──────────────────────────────────
+
+        private static Vector3 GetBirdCenter(RewardBird bird)
+        {
+            var baseCenter = (Vector3)typeof(RewardBird)
+                .GetField("_baseCenter", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(bird);
+            var offset = (Vector3)typeof(RewardBird)
+                .GetField("_centerOffset", BindingFlags.NonPublic | BindingFlags.Instance).GetValue(bird);
+            return baseCenter + offset;
+        }
+
+        /// <summary>テスト用のHexTileを指定ワールド座標に作る（森クラスターの代用）。</summary>
+        private static HexTile MakeTileAt(Vector3 position)
+        {
+            var go = new GameObject("TestForestTile");
+            go.transform.position = position;
+            var tile = go.AddComponent<HexTile>();
+            return tile;
+        }
+
+        private static void PublishForestGrowth(System.Collections.Generic.List<HexTile> tiles)
+        {
+            var metrics = new ForestGrowthMetrics(
+                largestClusterSize: tiles.Count, totalForestTiles: tiles.Count);
+            EventBus.Publish(new TerrainGrowthEvent<ForestGrowthMetrics>(
+                terrainType: null, anchor: ElfVillage.HexGrid.HexCoord.Zero,
+                affectedTiles: tiles, metrics: metrics));
+        }
+
+        // 12. 報酬発生時点の森クラスター中心に鳥が生成される
+
+        [Test]
+        public void SpawnedBirds_UseForestCenterAtRewardTime()
+        {
+            var spawner = MakeSpawner();
+            var forestA = new System.Collections.Generic.List<HexTile>
+            {
+                MakeTileAt(new Vector3(10f, 0f, 10f)),
+                MakeTileAt(new Vector3(11f, 0f, 10f)),
+            };
+            try
+            {
+                PublishForestGrowth(forestA);
+                EventBus.Publish(new RewardUnlockedEvent("forest_unlock_birds"));
+
+                var birds = spawner.GetComponentsInChildren<RewardBird>(true);
+                Assert.GreaterOrEqual(birds.Length, 1);
+                foreach (var b in birds)
+                {
+                    var c = GetBirdCenter(b);
+                    Assert.AreEqual(10.5f, c.x, 0.5f, "森Aの中心付近に生成されるはず");
+                    Assert.AreEqual(10f,   c.z, 0.5f, "森Aの中心付近に生成されるはず");
+                }
+            }
+            finally
+            {
+                Teardown(spawner);
+                foreach (var t in forestA) Object.DestroyImmediate(t.gameObject);
+            }
+        }
+
+        // 13・14. 生成後に別の森が育っても既存鳥の中心が変わらない（＝移動しない）
+
+        [Test]
+        public void ExistingBirds_DoNotFollowDifferentForest()
+        {
+            var spawner = MakeSpawner();
+            var forestA = new System.Collections.Generic.List<HexTile>
+            {
+                MakeTileAt(new Vector3(10f, 0f, 10f)),
+                MakeTileAt(new Vector3(11f, 0f, 10f)),
+            };
+            var forestB = new System.Collections.Generic.List<HexTile>
+            {
+                MakeTileAt(new Vector3(-40f, 0f, -40f)),
+                MakeTileAt(new Vector3(-41f, 0f, -40f)),
+            };
+            try
+            {
+                PublishForestGrowth(forestA);
+                EventBus.Publish(new RewardUnlockedEvent("forest_unlock_birds"));
+
+                var birds = spawner.GetComponentsInChildren<RewardBird>(true);
+                var before = new System.Collections.Generic.List<Vector3>();
+                foreach (var b in birds) before.Add(GetBirdCenter(b));
+
+                // 全く別の場所に森Bが育つ
+                PublishForestGrowth(forestB);
+
+                for (int i = 0; i < birds.Length; i++)
+                {
+                    Assert.AreEqual(before[i], GetBirdCenter(birds[i]),
+                        "別の場所の森が育っても、既に住み着いた鳥の中心は変わらないはず");
+                }
+            }
+            finally
+            {
+                Teardown(spawner);
+                foreach (var t in forestA) Object.DestroyImmediate(t.gameObject);
+                foreach (var t in forestB) Object.DestroyImmediate(t.gameObject);
+            }
+        }
+
+        // 自分の森が育った場合は追従する（承認済みの「自分の森だけ追従」仕様）
+
+        [Test]
+        public void ExistingBirds_DoFollowTheirOwnForestGrowth()
+        {
+            var spawner = MakeSpawner();
+            var tileA1 = MakeTileAt(new Vector3(10f, 0f, 10f));
+            var tileA2 = MakeTileAt(new Vector3(11f, 0f, 10f));
+            var tileA3 = MakeTileAt(new Vector3(20f, 0f, 10f)); // 森Aが東へ大きく伸びる
+            var forestA = new System.Collections.Generic.List<HexTile> { tileA1, tileA2 };
+            try
+            {
+                PublishForestGrowth(forestA);
+                EventBus.Publish(new RewardUnlockedEvent("forest_unlock_birds"));
+
+                var birds = spawner.GetComponentsInChildren<RewardBird>(true);
+                var before = GetBirdCenter(birds[0]);
+
+                // 既存タイルを含んだまま森Aが成長（＝同じクラスター）
+                PublishForestGrowth(new System.Collections.Generic.List<HexTile> { tileA1, tileA2, tileA3 });
+
+                Assert.AreNotEqual(before, GetBirdCenter(birds[0]),
+                    "自分が住み着いた森が育った場合は、その森に合わせて中心が更新されるはず");
+            }
+            finally
+            {
+                Teardown(spawner);
+                Object.DestroyImmediate(tileA1.gameObject);
+                Object.DestroyImmediate(tileA2.gameObject);
+                Object.DestroyImmediate(tileA3.gameObject);
+            }
+        }
+
+        // 15. 複数の鳥がそれぞれ生成時の中心を保持する（将来、別の森に別の鳥を出せる構造か）
+
+        [Test]
+        public void BirdsSpawnedAtDifferentTimes_KeepTheirOwnCenters()
+        {
+            var spawner = MakeSpawner();
+            var forestA = new System.Collections.Generic.List<HexTile> { MakeTileAt(new Vector3(10f, 0f, 10f)) };
+            var forestB = new System.Collections.Generic.List<HexTile> { MakeTileAt(new Vector3(-40f, 0f, -40f)) };
+            try
+            {
+                PublishForestGrowth(forestA);
+                EventBus.Publish(new RewardUnlockedEvent("forest_unlock_birds"));
+                var firstBatch = spawner.GetComponentsInChildren<RewardBird>(true);
+                var firstCenters = new System.Collections.Generic.List<Vector3>();
+                foreach (var b in firstBatch) firstCenters.Add(GetBirdCenter(b));
+
+                // 別の森Bで、将来の別報酬に相当する生成を直接行う（重複防止を迂回して2羽目群を作る）
+                PublishForestGrowth(forestB);
+                var spawnBird = typeof(BirdRewardSpawner).GetMethod("SpawnBird", BindingFlags.NonPublic | BindingFlags.Instance);
+                Assert.IsNotNull(spawnBird, "BirdRewardSpawnerにSpawnBirdメソッドが見つかりません");
+                spawnBird.Invoke(spawner, new object[]
+                {
+                    new Vector3(-40f, 2.5f, -40f), 1.2f, 1.2f, 0, (System.Collections.Generic.IReadOnlyList<HexTile>)forestB
+                });
+
+                var all = spawner.GetComponentsInChildren<RewardBird>(true);
+                Assert.AreEqual(firstBatch.Length + 1, all.Length, "2群目が生成されているはず");
+
+                // 1群目の中心が、2群目の生成後も変わっていないこと
+                for (int i = 0; i < firstBatch.Length; i++)
+                {
+                    Assert.AreEqual(firstCenters[i], GetBirdCenter(firstBatch[i]),
+                        "別の森に新しい鳥を生成しても、既存の鳥は元の森の中心を保持するはず");
+                }
+
+                // 2群目は森B側の中心を持つこと
+                var newest = all[all.Length - 1];
+                Assert.Less(GetBirdCenter(newest).x, -30f, "2群目は森B付近の中心を持つはず");
+            }
+            finally
+            {
+                Teardown(spawner);
+                foreach (var t in forestA) Object.DestroyImmediate(t.gameObject);
+                foreach (var t in forestB) Object.DestroyImmediate(t.gameObject);
+            }
+        }
+
         // ── 11. 一番近い森タイルが正しく選ばれる ─────────────────────────────
 
         [Test]

@@ -70,7 +70,11 @@ namespace ElfVillage.Tiles
 
         private void OnForestGrow(TerrainGrowthEvent<ForestGrowthMetrics> evt)
         {
-            int size = evt.Metrics.LargestClusterSize;
+            // 演出のしきい値は重み付きサイズで判定する（Stage 8）。
+            // 複合タイル（森0.7＋花0.3等）は森としては0.7枚分しか寄与しないため、
+            // 序盤に森・花の演出が同時発生しにくくなる。単一属性タイルは1.0なので挙動不変。
+            // クエスト進捗はLargestClusterSize（実タイル数）のままなので影響しない。
+            float size = evt.Metrics.WeightedClusterSize;
 
             // AffectedTiles = 今回イベントが属するクラスターの全タイル（BFS結果）
             var currentTileSet = new HashSet<HexTile>(evt.AffectedTiles);
@@ -128,8 +132,8 @@ namespace ElfVillage.Tiles
             }
         }
 
-        // 枚数 → 強度 0〜1（5枚=20%, 8枚=40%, 15枚=60%, 30枚=100%）
-        private static float CalcWindStrength(int size)
+        // 枚数（重み付き） → 強度 0〜1（5枚=20%, 8枚=40%, 15枚=60%, 30枚=100%）
+        private static float CalcWindStrength(float size)
         {
             if (size <  5)  return 0f;
             if (size <  8)  return Mathf.Lerp(0.20f, 0.40f, (size -  5f) /  3f);

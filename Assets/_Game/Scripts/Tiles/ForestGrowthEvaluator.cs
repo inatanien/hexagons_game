@@ -32,9 +32,14 @@ namespace ElfVillage.Tiles
             _totalForestTiles++;
 
             var cluster = FindCluster(evt.Coord);
+
+            // LargestClusterSizeは実タイル数（クエスト進捗・進行判定用）、
+            // WeightedClusterSizeは複合タイルをareaWeightで按分した演出用の重み（Stage 8）。
+            // 両者を分けることで、演出だけを抑えつつクエスト進捗は整数のまま維持できる。
             var metrics = new ForestGrowthMetrics(
-                largestClusterSize: cluster.Count,
-                totalForestTiles:   _totalForestTiles
+                largestClusterSize:  cluster.Count,
+                totalForestTiles:    _totalForestTiles,
+                weightedClusterSize: TerrainEffectWeight.SumFor(cluster, TileCategory.Forest)
             );
 
             EventBus.Publish(new TerrainGrowthEvent<ForestGrowthMetrics>(

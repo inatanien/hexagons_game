@@ -7,9 +7,11 @@
 //       経過時間→座標の変換はComputePosition()に純粋関数として切り出してあり、
 //       EditModeからコルーチン/Update実行なしで直接検証できる
 //       （QuestNotificationUI.ComputeFrameと同じ設計方針）。
-//       森クラスターが後から成長した場合はUpdateBounds()で中心・範囲だけを
-//       差し替える（周波数・位相・経過時間は据え置くため、範囲が広がっても
-//       飛行が不自然に飛躍しない）。
+//       この鳥は「報酬を達成した時点の森クラスター」に住み着く（Stage 8）。
+//       生成時にその森のタイル集合をhomeとして受け取り、以後の森成長イベントは
+//       TryFollowForestGrowth()でhomeと重なる場合だけ範囲を広げる。
+//       別の場所に新しい森ができても、その森へ吸い寄せられることはない。
+//       中心座標はSpawnerの可変フィールドを参照せず、自分のフィールドとして保持する。
 //
 //       夜間はHide(hidePoint)で現在位置から指定地点（呼び出し元が「一番近い森タイル」を
 //       渡す想定）へ一直線に飛んで消え、朝Show()で同じ地点から通常の飛行中心へ
@@ -20,6 +22,7 @@
 //       最大羽数がごく少数（Stage 5時点で3羽まで）であるため、鳥ごとに素朴な
 //       Updateを持たせても負荷は問題にならない。
 
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace ElfVillage.Tiles
@@ -48,6 +51,10 @@ namespace ElfVillage.Tiles
         private float         _transitionTime;
         private MeshRenderer[] _renderers;
 
+        // この鳥が住み着いている森クラスターのタイル集合（Stage 8）。
+        // 森成長イベントがこの集合と重なるときだけ、自分の森が育ったとみなして範囲を更新する。
+        private readonly HashSet<HexTile> _homeTiles = new();
+
         private void Awake()
         {
             _renderers = GetComponentsInChildren<MeshRenderer>(true);
@@ -75,12 +82,69 @@ namespace ElfVillage.Tiles
             transform.position = ComputePosition(Center, _extentX, _extentZ, _freqX, _freqZ, _bobAmplitude, _bobFrequency, _phaseX, _phaseZ, _time);
         }
 
-        // 森クラスターの成長に合わせて中心・飛行範囲だけを更新する（周波数・位相・経過時間は変えない）。
+        // 中心・飛行範囲だけを更新する（周波数・位相・経過時間は変えない）。
+        // 直接呼ぶのは生成時とTryFollowForestGrowth経由のみ。
         public void UpdateBounds(Vector3 baseCenter, float extentX, float extentZ)
         {
             _baseCenter = baseCenter;
             _extentX    = extentX;
             _extentZ    = extentZ;
+        }
+
+        /// <summary>この鳥が住み着く森クラスターを設定する（生成時に呼ぶ）。</summary>
+        public void SetHome(IReadOnlyList<HexTile> homeTiles)
+        {
+            _homeTiles.Clear();
+            if (homeTiles == null) return;
+            foreach (var t in homeTiles)
+                if (t != null) _homeTiles.Add(t);
+        }
+
+        /// <summary>
+        /// 森成長イベントが自分のhome森と重なる場合だけ、中心・範囲を更新して新しいタイル集合を取り込む。
+        /// 別の場所の森であれば何もしない（＝住み着いた森から動かない）。
+        /// </summary>
+        /// <returns>自分の森が育ったとみなして更新した場合はtrue。</returns>
+        public bool TryFollowForestGrowth(IReadOnlyList<HexTile> tiles, Vector3 baseCenter, float extentX, float extentZ)
+        {
+            if (tiles == null || tiles.Count == 0) return false;
+            if (_homeTiles.Count == 0) return false;
+
+            bool overlaps = false;
+            foreach (var t in tiles)
+            {
+                if (t != null && _homeTiles.Contains(t)) { overlaps = true; break; }
+            }
+            if (!overlaps) return false;
+
+            // 自分の森が育った → 成長後のタイル集合をhomeとして取り込み、範囲を広げる。
+            SetHome(tiles);
+            UpdateBounds(baseCenter, extentX, extentZ);
+            return true;
+        }
+
+        /// <summary>
+        /// 現在位置から一番近いhome森タイルの座標を返す（夜に隠れる先として使う）。
+        /// homeが未設定・全て破棄済みの場合はfalseを返し、呼び出し側のフォールバックに委ねる。
+        /// </summary>
+        public bool TryGetNearestHomeTilePosition(Vector3 from, out Vector3 nearest)
+        {
+            nearest = Vector3.zero;
+            bool found = false;
+            float bestDistSq = float.MaxValue;
+
+            foreach (var t in _homeTiles)
+            {
+                if (t == null) continue; // タイルが破棄されている場合はスキップ
+                float d = (t.transform.position - from).sqrMagnitude;
+                if (!found || d < bestDistSq)
+                {
+                    bestDistSq = d;
+                    nearest    = t.transform.position;
+                    found      = true;
+                }
+            }
+            return found;
         }
 
         // 現在位置からhidePointへ一直線に飛び、到着したら姿を消す。

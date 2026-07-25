@@ -75,7 +75,6 @@
 | コンポーネント | トリガー | エフェクト |
 |--------------|---------|-----------|
 | `WorldBreathSystem` | 森クラスター成長 | 葉パーティクルが舞う |
-| `BirdFlightSystem` | 森クラスター | 鳥が飛ぶ |
 | `FireflySystem` | 夜/条件 | 蛍が光る |
 | `SynergyEvaluator` | 地形シナジー | シナジーイベント発行 |
 | `ForestGrowthEvaluator` | 森タイル配置 | TerrainGrowthEvent発行 |

@@ -28,7 +28,12 @@ namespace ElfVillage.Tiles
             if (!IsFlowerType(evt.TileType)) return;
 
             var cluster = FindCluster(evt.Coord);
-            if (cluster.Count < _threshold) return;
+
+            // しきい値判定は重み付きサイズで行う（Stage 8）。複合タイル（花0.3＋森0.7等）は
+            // 花としては0.3枚分しか寄与しないため、序盤に花びら演出が早すぎる問題を抑える。
+            // 単一属性の花畑タイルは1.0なので従来と同じ枚数で発生する（挙動不変）。
+            // クラスター判定（FindCluster）自体は実タイル単位のままで変更していない。
+            if (TerrainEffectWeight.SumFor(cluster, TileCategory.Field) < _threshold) return;
 
             EventBus.Publish(new FlowerClusterEvent(cluster));
         }

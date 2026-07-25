@@ -180,6 +180,12 @@ namespace ElfVillage.Tests
         [Test]
         public void FlowerCluster_LegacyFieldPlusComposite_CountTogether_EvenThoughVisualOnly()
         {
+            // Stage 8で発生条件が重み付きになったため、テストの組み立てを更新している。
+            // 以前は「legacy 2枚 + 複合1枚 = 3枚」で閾値に到達する前提だったが、
+            // 複合タイルのField寄与はareaWeightで按分され0.5になったため合計2.5で閾値未満になる。
+            // このテストの本来の意図は「visualOnlyのField要素を持つ複合タイルも花クラスターに
+            // 参加する」ことなので、閾値はlegacyだけで満たしたうえで、複合タイルが
+            // クラスターへ加わることを検証する形へ変更した（意図は同じ、前提だけ更新）。
             var gridManager = MakeGridManager();
             var grid        = GetGrid(gridManager);
             var evaluator   = MakeFlowerEvaluator(gridManager);
@@ -190,30 +196,35 @@ namespace ElfVillage.Tests
             var c0 = HexCoord.Zero;
             var c1 = c0.Neighbor(0);
             var c2 = c0.Neighbor(1);
+            var c3 = c0.Neighbor(2);
 
             FlowerClusterEvent lastEvt = null;
             System.Action<FlowerClusterEvent> handler = e => lastEvt = e;
             EventBus.Subscribe(handler);
             try
             {
-                var t0 = PlaceTile(grid, c0, legacyField);
-                EventBus.Publish(new TilePlacedEvent(t0, legacyField, c0));
+                // legacy 3枚（重み1.0×3=3.0）で閾値に到達させる。
+                foreach (var c in new[] { c0, c1, c2 })
+                {
+                    var t = PlaceTile(grid, c, legacyField);
+                    EventBus.Publish(new TilePlacedEvent(t, legacyField, c));
+                }
+                Assert.IsNotNull(lastEvt, "前提: legacy 3枚で閾値に到達すること");
+                Assert.AreEqual(3, lastEvt.Tiles.Count);
 
-                var t1 = PlaceTile(grid, c1, legacyField);
-                EventBus.Publish(new TilePlacedEvent(t1, legacyField, c1));
+                // 4枚目にvisualOnlyのField要素を持つ複合タイルを隣接配置する。
+                var t3 = PlaceTile(grid, c3, forestFlower);
+                EventBus.Publish(new TilePlacedEvent(t3, forestFlower, c3));
 
-                // 3枚目はvisualOnlyのField要素を持つ複合タイル。これで閾値(3枚)に到達する。
-                var t2 = PlaceTile(grid, c2, forestFlower);
-                EventBus.Publish(new TilePlacedEvent(t2, forestFlower, c2));
+                Assert.AreEqual(4, lastEvt.Tiles.Count,
+                    "visualOnlyのField要素を持つ複合タイルも同じ花クラスターに参加するはず");
+                CollectionAssert.Contains(lastEvt.Tiles, t3);
             }
             finally
             {
                 EventBus.Unsubscribe(handler);
                 InvokeLifecycle(evaluator, "OnDisable");
             }
-
-            Assert.IsNotNull(lastEvt, "visualOnlyのField要素を持つ複合タイルでも閾値に達すればFlowerClusterEventが発行されるはず");
-            Assert.AreEqual(3, lastEvt.Tiles.Count);
         }
 
         [Test]
