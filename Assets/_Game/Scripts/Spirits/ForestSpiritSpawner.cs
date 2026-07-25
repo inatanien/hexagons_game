@@ -16,11 +16,27 @@ namespace ElfVillage.Spirits
 {
     public class ForestSpiritSpawner : MonoBehaviour
     {
+        /// <summary>生成する精霊の性格をどう決めるか。</summary>
+        public enum PersonalitySelectionMode
+        {
+            /// <summary>home森の代表座標から決定的に決める（本番の既定）。</summary>
+            DeterministicFromHome = 0,
+            /// <summary>指定した性格を必ず使う（検証Sceneで2種類を並べて比較するため）。</summary>
+            Fixed = 1,
+        }
+
         [Header("行動範囲")]
         [Tooltip("森クラスターが小さい場合でも確保する最低限の行動半幅")]
         [SerializeField] private float _minExtent    = 0.8f;
         [Tooltip("クラスターの外周からどれだけ内側に留めるか（森の外へ出ないようにする余白）")]
         [SerializeField] private float _extentInset  = 0.6f;
+
+        [Header("性格（Stage 13）")]
+        [Tooltip("DeterministicFromHome: home森の代表座標から決定的に決める（本番の既定）。" +
+                  "Fixed: _fixedPersonalityを必ず使う（検証用）")]
+        [SerializeField] private PersonalitySelectionMode _personalityMode = PersonalitySelectionMode.DeterministicFromHome;
+        [Tooltip("_personalityMode が Fixed のときだけ使われる")]
+        [SerializeField] private SpiritPersonalityKind _fixedPersonality = SpiritPersonalityKind.Calm;
 
         private ForestSpirit _spirit;
 
@@ -57,8 +73,61 @@ namespace ElfVillage.Spirits
             var go = new GameObject("ForestSpirit");
             go.transform.SetParent(transform, true);
 
+            // 性格は生成時にここで一度だけ決まる。以後の森の成長では再決定しない。
+            SpiritPersonalityKind personality = DecidePersonality(tiles);
+
             _spirit = go.AddComponent<ForestSpirit>();
-            _spirit.Initialize(tiles, center, extentX, extentZ, Random.value);
+            _spirit.Initialize(tiles, center, extentX, extentZ, Random.value, personality);
+
+            // Hierarchy上でどの子がどの性格か一目で分かるようにする
+            // （精霊自身が確定させた値を読む。Initializeが未知enumをCalmへ倒した場合もそれが出る）。
+            go.name = "ForestSpirit_" + _spirit.Personality;
+        }
+
+        /// <summary>
+        /// 生成する精霊の性格を決める。
+        /// ★Fixedは2種類を並べて比較するための正規の設定であり、Initializeを回避する抜け道ではない。
+        ///   どちらのモードでも生成経路（SpawnSpirit → Initialize → 生成時刺激）は完全に同じ。
+        /// ★DeterministicFromHomeの結果は永続IDではなく「セーブ導入前の決定的な既定値」。
+        ///   将来セーブを導入したら、保存されたSpiritPersonalityKindを正とすること。
+        /// </summary>
+        private SpiritPersonalityKind DecidePersonality(IReadOnlyList<HexTile> tiles)
+        {
+            if (_personalityMode == PersonalitySelectionMode.Fixed) return _fixedPersonality;
+
+            if (!TryGetRepresentativePosition(tiles, out Vector3 representative))
+                return SpiritPersonalityKind.Calm; // 代表座標が取れない場合の安全な既定
+
+            return SpiritBehaviorMath.PickPersonality(representative.x, representative.z);
+        }
+
+        /// <summary>
+        /// home森を代表する1タイルの座標を、タイルの列挙順に依存せずに選ぶ。
+        /// ★「最小X、同値なら最小Z」という全順序で選ぶため、同じ森であればリストの並びが
+        ///   どう変わっても必ず同じタイルが選ばれる。
+        ///   （EventBusの購読順やクラスター走査順が変わっても性格が変わらないことを保証する）
+        /// </summary>
+        private static bool TryGetRepresentativePosition(IReadOnlyList<HexTile> tiles, out Vector3 representative)
+        {
+            representative = Vector3.zero;
+            if (tiles == null || tiles.Count == 0) return false;
+
+            bool found = false;
+            foreach (var tile in tiles)
+            {
+                if (tile == null) continue;
+                var p = tile.transform.position;
+                if (!float.IsFinite(p.x) || !float.IsFinite(p.z)) continue;
+
+                if (!found || p.x < representative.x ||
+                    (Mathf.Approximately(p.x, representative.x) && p.z < representative.z))
+                {
+                    representative = p;
+                    found = true;
+                }
+            }
+
+            return found;
         }
 
         /// <summary>クラスターのAABBから中心と行動半幅を求める（森の外へ出ないよう内側へ寄せる）。</summary>

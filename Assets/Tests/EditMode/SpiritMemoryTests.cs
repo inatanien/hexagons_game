@@ -42,12 +42,13 @@ namespace ElfVillage.Tests
             foreach (var t in tiles) if (t != null) Object.DestroyImmediate(t.gameObject);
         }
 
-        private static ForestSpirit MakeSpirit(out List<HexTile> home)
+        private static ForestSpirit MakeSpirit(out List<HexTile> home,
+                                                SpiritPersonalityKind personality = SpiritPersonalityKind.Calm)
         {
             home = new List<HexTile> { MakeTileAt(Vector3.zero), MakeTileAt(new Vector3(1f, 0f, 0f)) };
             var go = new GameObject("TestForestSpirit");
             var spirit = go.AddComponent<ForestSpirit>();
-            spirit.Initialize(home, Vector3.zero, 1.5f, 1.5f, 0.5f);
+            spirit.Initialize(home, Vector3.zero, 1.5f, 1.5f, 0.5f, personality);
             Invoke(spirit, "OnEnable");
             return spirit;
         }
@@ -72,6 +73,13 @@ namespace ElfVillage.Tests
         }
 
         private static float GetReactScale(ForestSpirit spirit) => (float)GetField(spirit, "_reactScale");
+
+        /// <summary>
+        /// 「体験1回ぶん」の見慣れ度。Stage 13以降このgainは性格（Profile）から供給されるため、
+        /// 数値を直書きせず精霊自身の性格から求める（検証したいのは回数であって値ではない）。
+        /// </summary>
+        private static float OneExperience(ForestSpirit spirit)
+            => SpiritPersonalityProfile.For(spirit.Personality).FamiliarityGain;
 
         // ══ 1〜9. 減衰 ═══════════════════════════════════════════════════
 
@@ -294,8 +302,8 @@ namespace ElfVillage.Tests
                 // 初回のScaleは1.0（加算前=0から算出）。加算後の見慣れ度は1になっている。
                 Assert.AreEqual(1f, GetReactScale(spirit), 0.0001f,
                     "今回ぶんを加算してからScaleを計算してはいけない");
-                Assert.AreEqual(1f, GetFamiliarity(spirit, SpiritStimulusKind.FlowerBloomed), 0.01f,
-                    "体験後は見慣れ度が加算されているはず");
+                Assert.AreEqual(OneExperience(spirit), GetFamiliarity(spirit, SpiritStimulusKind.FlowerBloomed), 0.01f,
+                    "体験後は見慣れ度が1回ぶん加算されているはず");
             }
             finally { Teardown(spirit, home); }
         }
@@ -607,8 +615,8 @@ namespace ElfVillage.Tests
                     Assert.AreEqual(1, spirits.Length, "精霊は1体だけ生成されるはず");
 
                     float fam = GetFamiliarity(spirits[0], SpiritStimulusKind.ForestGrew);
-                    Assert.AreEqual(1f, fam, 0.01f,
-                        $"relayFirst={relayFirst} で生成時の森が記憶されていない（購読順に依存している）");
+                    Assert.AreEqual(OneExperience(spirits[0]), fam, 0.01f,
+                        $"relayFirst={relayFirst} で生成時の森が1回ぶん記憶されていない（購読順に依存している）");
                 }
                 finally
                 {
@@ -635,8 +643,8 @@ namespace ElfVillage.Tests
                     new ForestGrowthMetrics(tiles.Count, tiles.Count)));
 
                 var spirit = spawner.GetComponentsInChildren<ForestSpirit>(true)[0];
-                Assert.AreEqual(1f, GetFamiliarity(spirit, SpiritStimulusKind.ForestGrew), 0.01f,
-                    "生成時の刺激が二重に記憶されてはいけない");
+                Assert.AreEqual(OneExperience(spirit), GetFamiliarity(spirit, SpiritStimulusKind.ForestGrew), 0.01f,
+                    "生成時の刺激が二重に記憶されてはいけない（1回ぶんだけ）");
             }
             finally
             {

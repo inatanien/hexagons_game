@@ -43,12 +43,13 @@ namespace ElfVillage.Tests
         }
 
         /// <summary>home森を(0,0,0)付近に持つ精霊を作る。</summary>
-        private static ForestSpirit MakeSpirit(out List<HexTile> homeTiles)
+        private static ForestSpirit MakeSpirit(out List<HexTile> homeTiles,
+                                                SpiritPersonalityKind personality = SpiritPersonalityKind.Calm)
         {
             homeTiles = new List<HexTile> { MakeTileAt(Vector3.zero), MakeTileAt(new Vector3(1f, 0f, 0f)) };
             var go = new GameObject("TestForestSpirit");
             var spirit = go.AddComponent<ForestSpirit>();
-            spirit.Initialize(homeTiles, Vector3.zero, 1.5f, 1.5f, 0.5f);
+            spirit.Initialize(homeTiles, Vector3.zero, 1.5f, 1.5f, 0.5f, personality);
             Invoke(spirit, "OnEnable"); // 刺激の購読を開始する
             return spirit;
         }

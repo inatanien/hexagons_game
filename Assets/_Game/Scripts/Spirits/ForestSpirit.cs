@@ -44,9 +44,9 @@ namespace ElfVillage.Spirits
         [SerializeField] private float _hoverHeight       = 0.35f;
 
         [Header("跳ね移動（Wander/ObserveTreeの移動中）")]
-        [Tooltip("1回の移動あたりの跳ね回数")]
-        [SerializeField] private int   _hopCount  = 2;
-        [Tooltip("跳ねの高さ。体高(約0.15)の15〜30%を目安にする")]
+        [Tooltip("跳ねの高さの【基準値】。単体では体高(約0.15)の15〜30%が目安。" +
+                  "実際の高さは性格のHopHeightScaleを掛けた値になり、" +
+                  "弾む性格（Curious=1.3）ではこの目安を意図的に超える。回数も性格のHopCountに従う")]
         [SerializeField] private float _hopHeight = 0.038f;
         [Tooltip("着地時に少し潰れる量（Visualルートのみに適用）")]
         [SerializeField] private float _hopSquash = 0.10f;
@@ -68,17 +68,22 @@ namespace ElfVillage.Spirits
         [Header("記憶・見慣れ（Stage 12）")]
         [Tooltip("見慣れ度が半分に薄れるまでの秒数（ゲーム時間）")]
         [SerializeField] private float _familiarityHalfLife = 60f;
-        [Tooltip("刺激を1回受理するごとに増える見慣れ度")]
-        [SerializeField] private float _familiarityGain     = 1f;
         [Tooltip("見慣れ度の上限。ここに達すると反応の強さが最小になる")]
         [SerializeField] private float _familiarityMaximum  = 4f;
-        [Tooltip("見慣れきったときの反応の強さ。0にはせず、小さな反応を必ず残す")]
-        [SerializeField] private float _minReactionScale    = 0.25f;
         [Tooltip("Reactの最短継続時間。見慣れても一瞬で終わって見えなくならないようにする")]
         [SerializeField] private float _reactMinDuration    = 0.75f;
 
         // 刺激種類ごとの見慣れ度。減衰・加算はSpiritMemoryが一元的に扱う。
         [SerializeField] private SpiritMemory _memory = new();
+
+        // ── 性格（Stage 13。生成時に一度だけ確定し、以後再計算しない） ──
+        //    半減期(_familiarityHalfLife)と上限(_familiarityMaximum)は全性格共通のまま。
+        //    「慣れる速さ」はgainで、「慣れた後の反応の残り方」はMinReactionScaleで表現する。
+        private SpiritPersonalityKind    _personality = SpiritPersonalityKind.Calm;
+        private SpiritPersonalityProfile _profile     = SpiritPersonalityProfile.For(SpiritPersonalityKind.Calm);
+
+        /// <summary>検証用の読み取り（表示専用。外部から性格を変更する手段は提供しない）。</summary>
+        public SpiritPersonalityKind Personality => _personality;
 
         // 今回のReactで使う反応の強さ（受理時に、加算前の見慣れ度から算出して保持する）
         private float _reactScale = 1f;
@@ -122,12 +127,19 @@ namespace ElfVillage.Spirits
         // ── 初期化 ────────────────────────────────────────────────────
 
         /// <summary>
-        /// home森を確定させ、初期状態を開始する。生成直後に1回だけ呼ぶ。
+        /// home森と性格を確定させ、初期状態を開始する。生成直後に1回だけ呼ぶ。
         /// 値はすべてコピーされ、以後Spawner側の変化には影響されない。
+        /// ★性格はここで一度だけ決まり、home森が成長しても再決定されない
+        ///   （TryFollowForestGrowthは範囲だけを更新する）。
         /// </summary>
         public void Initialize(IReadOnlyList<HexTile> homeTiles, Vector3 homeCenter,
-                                float homeExtentX, float homeExtentZ, float randomSeed01)
+                                float homeExtentX, float homeExtentZ, float randomSeed01,
+                                SpiritPersonalityKind personality)
         {
+            // 未知のenum値でもProfile.ForがCalmへ安全に倒すため、未初期化Profileは発生しない。
+            _personality = personality;
+            _profile     = SpiritPersonalityProfile.For(personality);
+
             SetHome(homeTiles, homeCenter, homeExtentX, homeExtentZ);
 
             _swayPhase = randomSeed01 * Mathf.PI * 2f;
@@ -216,14 +228,18 @@ namespace ElfVillage.Spirits
             //   3. Reactを開始
             //   4. 今回の体験分を加算
             // 先に加算すると初回の反応まで弱まってしまうため、この順序を守る。
+            // 性格はこの2つの値だけを差し替える（純粋関数のシグネチャは変えない）。
+            //   MinReactionScale … 見慣れきった後にどれだけ反応が残るか
+            //   FamiliarityGain  … どれだけ早く慣れるか
             float now      = Time.time;
             float familiar = _memory.GetFamiliarity(stimulus.Kind, now, _familiarityHalfLife);
             _reactScale    = SpiritBehaviorMath.ComputeReactionScale(
-                                 familiar, _familiarityMaximum, _minReactionScale);
+                                 familiar, _familiarityMaximum, _profile.MinReactionScale);
 
             BeginReact(stimulus, incoming);
 
-            _memory.Reinforce(stimulus.Kind, now, _familiarityHalfLife, _familiarityGain, _familiarityMaximum);
+            _memory.Reinforce(stimulus.Kind, now, _familiarityHalfLife,
+                              _profile.FamiliarityGain, _familiarityMaximum);
         }
 
         /// <summary>この刺激が自分に関係するか（種類ごとの受理条件）。</summary>
@@ -265,8 +281,14 @@ namespace ElfVillage.Spirits
 
             _state         = next;
             _stateElapsed  = 0f;
-            _stateDuration = SpiritBehaviorMath.ComputeStateDuration(next, Random.value);
             _isMoving      = false;
+
+            // ★性格のIdle倍率はIdleだけへ掛ける。
+            //   ここで状態を明示的に判定することで、Sleep/Stretch/React/Wander/ObserveTreeへ
+            //   倍率が漏れないことがこの1行から読み取れるようにしている。
+            //   Reactの長さはFamiliarity由来の_reactScaleが下で別途調整する（両者を混ぜない）。
+            float durationScale = (next == SpiritState.Idle) ? _profile.IdleDurationScale : 1f;
+            _stateDuration = SpiritBehaviorMath.ComputeStateDuration(next, Random.value, durationScale);
 
             _reactionScheduled = false;
             _reactionFinished  = false;
@@ -275,8 +297,12 @@ namespace ElfVillage.Spirits
             switch (next)
             {
                 case SpiritState.Wander:
+                    // ★性格の行動範囲は「目的地を選ぶ範囲」を狭めることで表現する。
+                    //   WanderRadiusScaleは1.0を超えないため、Curiousでもhome範囲を出ない。
+                    //   最終的な収まりはBeginMoveのClampToBoundsが保証する
+                    //   （PickWanderTargetの既存の保証はそのまま維持される）。
                     BeginMove(SpiritBehaviorMath.PickWanderTarget(
-                        _homeCenter, _homeExtentX, _homeExtentZ, Random.value, Random.value));
+                        _homeCenter, RoamExtentX, RoamExtentZ, Random.value, Random.value));
                     break;
 
                 case SpiritState.ObserveTree:
@@ -326,11 +352,21 @@ namespace ElfVillage.Spirits
             _bodyRoot.localPosition = Vector3.zero;
         }
 
+        // ── 実際に歩き回る範囲（Stage 13） ────────────────────────────
+        //    ★性格の行動範囲は「Wanderの目的地の選び方」だけでなく、
+        //      自発移動の最終的な収まり先そのものへ掛ける。
+        //      Wanderにしか掛けないと、あまりWanderしないCalmは結局
+        //      ObserveTreeの移動でhome全域まで出てしまい、
+        //      「Calmは中央寄りで狭い」がプレイヤーから見えなくなるため。
+        //      倍率は1.0を超えないので、元のhome範囲は決して超えない。
+        private float RoamExtentX => _homeExtentX * _profile.WanderRadiusScale;
+        private float RoamExtentZ => _homeExtentZ * _profile.WanderRadiusScale;
+
         private void BeginMove(Vector3 target)
         {
             _moveFrom = transform.position;
             _moveTo   = GroundedPosition(
-                SpiritBehaviorMath.ClampToBounds(target, _homeCenter, _homeExtentX, _homeExtentZ));
+                SpiritBehaviorMath.ClampToBounds(target, _homeCenter, RoamExtentX, RoamExtentZ));
             _isMoving = true;
         }
 
@@ -369,7 +405,7 @@ namespace ElfVillage.Spirits
                 // 跳ねはY方向の一時オフセットとして上乗せするだけなので、
                 // progress=1で必ず0に戻り、状態をまたいでY座標が蓄積しない。
                 var pos = Vector3.Lerp(_moveFrom, _moveTo, p);
-                pos.y += SpiritBehaviorMath.ComputeHopOffset(p, _hopCount, _hopHeight);
+                pos.y += SpiritBehaviorMath.ComputeHopOffset(p, MoveHopCount, MoveHopHeight);
                 transform.position = pos;
 
                 ApplyHopSquash(p);
@@ -417,8 +453,17 @@ namespace ElfVillage.Spirits
             }
 
             if (_stateElapsed >= _stateDuration)
-                EnterState(SpiritBehaviorMath.DecideNextState(_state, Random.value));
+                EnterState(SpiritBehaviorMath.DecideNextState(
+                    _state, Random.value,
+                    _profile.WanderWeight, _profile.ObserveWeight, _profile.SleepWeight));
         }
+
+        // ── 移動中の跳ねに使う実効値（Stage 13） ──────────────────────
+        //    ★性格を反映するのは「移動中の跳ね」だけ。
+        //      ObserveTree到着後のSmallHopとReactのSmallHopは、その場で1回だけ跳ねる別の演出であり、
+        //      移動用のHopCountを流用すると意味が変わってしまうため hopCount:1 のまま維持する。
+        private int   MoveHopCount  => _profile.HopCount;
+        private float MoveHopHeight => _hopHeight * _profile.HopHeightScale;
 
         /// <summary>Sleep中は少し縮んで「丸くなっている」ように見せる（移動はしない）。</summary>
         private void ApplySleepPose()
@@ -466,8 +511,10 @@ namespace ElfVillage.Spirits
             if (_bodyRoot == null || _hopSquash <= 0f) return;
 
             // 跳ねの高さが低いほど「着地している」とみなして潰す。
-            float h = _hopHeight > 0f
-                ? SpiritBehaviorMath.ComputeHopOffset(progress, _hopCount, _hopHeight) / _hopHeight
+            // 上の移動処理と同じ実効値を使い、潰れと跳ねがずれないようにする。
+            float hopHeight = MoveHopHeight;
+            float h = hopHeight > 0f
+                ? SpiritBehaviorMath.ComputeHopOffset(progress, MoveHopCount, hopHeight) / hopHeight
                 : 0f;
             float squash = _hopSquash * (1f - h);
             _bodyRoot.localScale = new Vector3(1f + squash * 0.5f, 1f - squash, 1f + squash * 0.5f);

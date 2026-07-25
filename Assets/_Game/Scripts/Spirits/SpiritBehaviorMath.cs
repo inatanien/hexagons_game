@@ -26,20 +26,37 @@ namespace ElfVillage.Spirits
         public const float ReactMinDuration       = 1.0f;
         public const float ReactMaxDuration       = 2.0f;
 
+        // ── Idleからの遷移比重の既定値（Stage 13） ────────────────────
+        // 性格を持たない場合の比重。合計1.0で、従来の閾値（0.50 / 0.85）と完全に一致する。
+        public const float DefaultWanderWeight  = 0.50f;
+        public const float DefaultObserveWeight = 0.35f;
+        public const float DefaultSleepWeight   = 0.15f;
+
         /// <summary>
         /// 次の状態を決める。random01は0〜1の正規化乱数（範囲外・NaNは安全に丸める）。
         /// 定義済みのSpiritStateしか返さない。Sleepへは Idle からのみ入り、Sleepからは Idle へのみ戻る。
+        /// 性格を持たない呼び出し用に、既定比重版へ委譲する（従来挙動と一致）。
         /// </summary>
         public static SpiritState DecideNextState(SpiritState current, float random01)
+            => DecideNextState(current, random01,
+                               DefaultWanderWeight, DefaultObserveWeight, DefaultSleepWeight);
+
+        /// <summary>
+        /// 性格の比重を使って次の状態を決める（Stage 13）。
+        /// ★比重は確率ではなく相対的な重み。合計が1.0であることは前提にせず、内部で正規化する。
+        ///   負値・NaN・Infinityは0として扱い、全て0なら既定比重へ安全にフォールバックする。
+        /// 比重が影響するのは Idle からの選択だけで、Wander/ObserveTree/Sleep/Stretch/React からの
+        /// 既存遷移は一切変更しない（性格で状態機械の形を変えないため）。
+        /// </summary>
+        public static SpiritState DecideNextState(SpiritState current, float random01,
+                                                   float wanderWeight, float observeWeight, float sleepWeight)
         {
             float r = Safe01(random01);
 
             switch (current)
             {
                 case SpiritState.Idle:
-                    if (r < 0.50f) return SpiritState.Wander;
-                    if (r < 0.85f) return SpiritState.ObserveTree;
-                    return SpiritState.Sleep;
+                    return PickFromIdle(r, wanderWeight, observeWeight, sleepWeight);
 
                 case SpiritState.Wander:
                     return r < 0.60f ? SpiritState.Idle : SpiritState.ObserveTree;
@@ -65,6 +82,39 @@ namespace ElfVillage.Spirits
             }
         }
 
+        /// <summary>
+        /// 重み付きでIdleからの遷移先を選ぶ。重みは合計から正規化する。
+        /// 重みが0の遷移先は決して選ばれない（境界値 random01=1 でも選ばれない）。
+        /// </summary>
+        private static SpiritState PickFromIdle(float r, float wanderWeight, float observeWeight, float sleepWeight)
+        {
+            float w = SafeWeight(wanderWeight);
+            float o = SafeWeight(observeWeight);
+            float s = SafeWeight(sleepWeight);
+            float total = w + o + s;
+
+            // 全ての重みが無効なら既定比重で選ぶ（再帰させず直接値を使う）。
+            if (!(total > 0f))
+            {
+                w = DefaultWanderWeight;
+                o = DefaultObserveWeight;
+                s = DefaultSleepWeight;
+                total = w + o + s;
+            }
+
+            // r（0〜1）を重みの合計へ写して、累積区間で選ぶ。
+            float t = r * total;
+
+            // 「重みが0でないこと」も条件に入れることで、r=1（t==total）の境界でも
+            // 重み0の遷移先が選ばれてしまわないようにしている。
+            if (w > 0f && t < w)     return SpiritState.Wander;
+            if (o > 0f && t < w + o) return SpiritState.ObserveTree;
+            if (s > 0f)              return SpiritState.Sleep;
+
+            // Sleepの重みが0で、境界(t == total)に落ちた場合の取りこぼしを重みのある側へ倒す。
+            return o > 0f ? SpiritState.ObserveTree : SpiritState.Wander;
+        }
+
         /// <summary>状態ごとの継続時間。random01で最小〜最大の間を線形に選ぶ。</summary>
         public static float ComputeStateDuration(SpiritState state, float random01)
         {
@@ -80,6 +130,24 @@ namespace ElfVillage.Spirits
                 case SpiritState.React:       return Mathf.Lerp(ReactMinDuration,       ReactMaxDuration,       r);
                 default:                      return Mathf.Lerp(IdleMinDuration,        IdleMaxDuration,        r);
             }
+        }
+
+        /// <summary>
+        /// 継続時間に性格の倍率を掛ける版（Stage 13）。
+        /// durationScale=1.0で上の関数と完全に一致する。不正な倍率（0以下・NaN・Infinity）は
+        /// 1.0として扱うため、状態が0秒で終わったり無限に続いたりしない。
+        /// 正の倍率を掛けるだけなので、最小＜最大の関係は保たれる。
+        /// ★どの状態へ倍率を掛けるかは呼び出し側が決める（性格のIdle倍率が
+        ///   Sleep/Stretch/React等へ漏れないようにするため、ここでは状態を判定しない）。
+        /// </summary>
+        public static float ComputeStateDuration(SpiritState state, float random01, float durationScale)
+        {
+            float baseDuration = ComputeStateDuration(state, random01);
+
+            float scale = (float.IsFinite(durationScale) && durationScale > 0f) ? durationScale : 1f;
+            float scaled = baseDuration * scale;
+
+            return (float.IsFinite(scaled) && scaled > 0f) ? scaled : baseDuration;
         }
 
         /// <summary>
@@ -337,7 +405,79 @@ namespace ElfVillage.Spirits
             return Mathf.Lerp(1f, min, t);
         }
 
+        // ══ Stage 13: 性格の決定 ═════════════════════════════════════════
+
+        /// <summary>実装済みの性格の数。ハッシュ結果をこの数へ写す。</summary>
+        public const int PersonalityKindCount = 2;
+
+        // 座標をそのまま混ぜるとq/r的な規則性が残るため、固定seedを起点にする。
+        private const int PersonalityHashSeed = 0x5F3A17;
+        private const int HashPrime           = 16777619;
+
+        /// <summary>
+        /// 2つの整数から安定したハッシュを作る純粋関数。
+        /// ★string.GetHashCode()は実行ごとに値が変わるため使わない。
+        ///   この関数は整数演算だけで完結するので、実行をまたいでも必ず同じ値になる。
+        /// 戻り値は必ず0以上（int.MinValueの符号反転による例外を避けるためマスクする）。
+        /// </summary>
+        public static int StableHash(int a, int b)
+        {
+            unchecked
+            {
+                int h = PersonalityHashSeed;
+                h = (h * HashPrime) ^ a;
+                h = (h * HashPrime) ^ b;
+
+                // 近い座標同士が同じ結果へ偏らないよう、上位ビットを下位へ撹拌する。
+                h ^= h >> 15;
+                h *= HashPrime;
+                h ^= h >> 13;
+
+                return h & 0x7FFFFFFF;
+            }
+        }
+
+        /// <summary>
+        /// home森の代表座標から性格を決める純粋関数（Stage 13）。
+        /// ★決定性の要件
+        ///   ・UnityEngine.Randomを使わない
+        ///   ・string.GetHashCode()を使わない
+        ///   ・タイルの列挙順に依存しない（代表座標の選び方は呼び出し側が順序非依存で決める）
+        ///   同じ森からは、実行をまたいでも必ず同じ性格の精霊が生まれる。
+        ///
+        /// ★HexCoordではなくワールド座標を使う理由
+        ///   SpiritsアセンブリはHexGridを参照していない（Stage 9で確定した構成）。
+        ///   HexCoordのq/rへ触れるためだけにアセンブリ依存を増やすのは不自然なため、
+        ///   タイルのワールド座標を0.1単位へ量子化して同等の安定した整数を得ている。
+        ///   タイル座標はHexCoordから決定的に生成されるため、安定性は同じ。
+        ///
+        /// ★この値の位置づけ（重要）
+        ///   量子化したワールド座標は「セーブ導入前の決定的な既定値」であって、
+        ///   論理的な永続IDではない。具体的には次の性質を持つ:
+        ///     ・同じ実行環境・同じ盤面であれば、実行をまたいでも必ず同じ性格になる
+        ///     ・ただしタイルサイズやワールド原点を変更すると結果は変わり得る
+        ///   したがって将来セーブを導入したら、保存された SpiritPersonalityKind を正とし、
+        ///   この関数は「まだ保存が無い個体の初期値」を決めるためだけに使う。
+        /// </summary>
+        public static SpiritPersonalityKind PickPersonality(float representativeX, float representativeZ)
+        {
+            // 極端な値でRoundToIntが桁あふれしないよう、先に現実的な範囲へ丸める。
+            float x = Mathf.Clamp(SafeFinite(representativeX), -100000f, 100000f);
+            float z = Mathf.Clamp(SafeFinite(representativeZ), -100000f, 100000f);
+
+            int qx = Mathf.RoundToInt(x * 10f);
+            int qz = Mathf.RoundToInt(z * 10f);
+
+            int index = StableHash(qx, qz) % PersonalityKindCount;
+            return (SpiritPersonalityKind)index;
+        }
+
         // ── 入力の安全化 ──────────────────────────────────────────────
+
+        /// <summary>比重は0以上の有限値にする（負値・NaN・Infinityは0＝選ばれない）。</summary>
+        private static float SafeWeight(float value)
+            => (float.IsFinite(value) && value > 0f) ? value : 0f;
+
 
         /// <summary>0〜1へ丸める。NaN・Infinityは0として扱う。</summary>
         private static float Safe01(float value)

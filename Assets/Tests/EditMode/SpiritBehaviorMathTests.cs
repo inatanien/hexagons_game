@@ -568,12 +568,13 @@ namespace ElfVillage.Tests
         // ── Stage 10-12・15. リアクションは最大1回／状態終了で表示が元へ戻る ──
         //    ForestSpiritのUpdateはEditModeで自動実行されないため、内部状態を直接進めて検証する。
 
-        private static ForestSpirit MakeSpirit(out List<HexTile> tiles)
+        private static ForestSpirit MakeSpirit(out List<HexTile> tiles,
+                                                SpiritPersonalityKind personality = SpiritPersonalityKind.Calm)
         {
             tiles = new List<HexTile> { MakeTileAt(Vector3.zero), MakeTileAt(new Vector3(1f, 0f, 0f)) };
             var go = new GameObject("TestForestSpirit");
             var spirit = go.AddComponent<ForestSpirit>();
-            spirit.Initialize(tiles, Vector3.zero, 1.5f, 1.5f, 0.5f);
+            spirit.Initialize(tiles, Vector3.zero, 1.5f, 1.5f, 0.5f, personality);
             return spirit;
         }
 
