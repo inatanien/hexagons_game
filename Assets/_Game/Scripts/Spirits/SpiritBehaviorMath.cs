@@ -23,6 +23,8 @@ namespace ElfVillage.Spirits
         public const float SleepMaxDuration       = 10f;
         public const float StretchMinDuration     = 1.0f;
         public const float StretchMaxDuration     = 1.5f;
+        public const float ReactMinDuration       = 1.0f;
+        public const float ReactMaxDuration       = 2.0f;
 
         /// <summary>
         /// 次の状態を決める。random01は0〜1の正規化乱数（範囲外・NaNは安全に丸める）。
@@ -53,6 +55,10 @@ namespace ElfVillage.Spirits
                     // 伸びの後は必ずIdleへ。StretchへはSleepからしか入らない一方通行。
                     return SpiritState.Idle;
 
+                case SpiritState.React:
+                    // 反応し終えたら必ずIdleへ戻る（中断前のWanderへは復帰しない）。
+                    return SpiritState.Idle;
+
                 default:
                     // 未定義・不正な状態が渡された場合の安全な既定値。
                     return SpiritState.Idle;
@@ -71,6 +77,7 @@ namespace ElfVillage.Spirits
                 case SpiritState.ObserveTree: return Mathf.Lerp(ObserveTreeMinDuration, ObserveTreeMaxDuration, r);
                 case SpiritState.Sleep:       return Mathf.Lerp(SleepMinDuration,       SleepMaxDuration,       r);
                 case SpiritState.Stretch:     return Mathf.Lerp(StretchMinDuration,     StretchMaxDuration,     r);
+                case SpiritState.React:       return Mathf.Lerp(ReactMinDuration,       ReactMaxDuration,       r);
                 default:                      return Mathf.Lerp(IdleMinDuration,        IdleMaxDuration,        r);
             }
         }
@@ -185,21 +192,12 @@ namespace ElfVillage.Spirits
             return Mathf.Clamp(offset, 0f, h);
         }
 
-        /// <summary>ObserveTree中に1回だけ行う小さなリアクションの種類。</summary>
-        public enum ObserveReaction
-        {
-            /// <summary>少し首を傾げる。</summary>
-            TiltHead = 0,
-            /// <summary>その場で小さく1回跳ねる。</summary>
-            SmallHop = 1,
-        }
-
         /// <summary>
-        /// リアクションの種類を選ぶ。random01は0〜1の正規化乱数（不正値は安全に丸める）。
-        /// 定義済みの種類しか返さない。まずは50%ずつ。
+        /// ObserveTree中に1回だけ行う小さなリアクションの種類を選ぶ。
+        /// random01は0〜1の正規化乱数（不正値は安全に丸める）。定義済みの種類しか返さない。まずは50%ずつ。
         /// </summary>
-        public static ObserveReaction PickObserveReaction(float random01)
-            => Safe01(random01) < 0.5f ? ObserveReaction.TiltHead : ObserveReaction.SmallHop;
+        public static SpiritReactionKind PickObserveReaction(float random01)
+            => Safe01(random01) < 0.5f ? SpiritReactionKind.TiltHead : SpiritReactionKind.SmallHop;
 
         /// <summary>
         /// リアクションの進行度（0〜1）に対する首の傾き角（度）。
@@ -211,6 +209,74 @@ namespace ElfVillage.Spirits
             float a = SafeFinite(maxAngleDeg);
             return Mathf.Sin(p * Mathf.PI) * a;
         }
+
+        // ══ Stage 11: 世界からの刺激への反応 ═════════════════════════════
+
+        /// <summary>
+        /// 刺激の優先度。刺激データ側には持たせず、ここへ一元化する
+        /// （呼び出し側が勝手な優先度を注入できないようにするため）。
+        /// 未知の種類は0を返し、割り込みが起きないようにする。
+        /// </summary>
+        public static int GetStimulusPriority(SpiritStimulusKind kind)
+        {
+            switch (kind)
+            {
+                case SpiritStimulusKind.ForestGrew:    return 1;
+                case SpiritStimulusKind.FlowerBloomed: return 1;
+                default:                                return 0; // 未知の刺激は無視する
+            }
+        }
+
+        /// <summary>
+        /// 割り込んでよいか。より高い優先度のときだけ割り込める。
+        /// 同じ優先度では割り込まないため、同種の刺激が連続してもReactが再開始されない。
+        /// 反応していない通常状態のcurrentPriorityは0として渡す。
+        /// </summary>
+        public static bool ShouldInterrupt(int currentPriority, int incomingPriority)
+            => incomingPriority > 0 && incomingPriority > currentPriority;
+
+        /// <summary>
+        /// 外部刺激で中断してよい状態か。SleepとStretchは中断しない
+        /// （眠っている最中や伸びの途中に反応すると不自然なため）。
+        /// </summary>
+        public static bool CanBeInterruptedByStimulus(SpiritState state)
+            => state == SpiritState.Idle
+            || state == SpiritState.Wander
+            || state == SpiritState.ObserveTree
+            || state == SpiritState.React;
+
+        /// <summary>
+        /// 刺激を知覚できる距離内か。水平（X/Z）距離で判定し、Y差の影響を受けない
+        /// （精霊は少し浮いており、タイルは地面にあるため、Yを含めると不自然に無視されてしまう）。
+        /// NaN・Infinityを含む座標や不正な半径はfalse（＝知覚しない）で安全に拒否する。
+        /// </summary>
+        public static bool IsWithinPerception(Vector3 spiritPosition, Vector3 stimulusPosition, float radius)
+        {
+            if (!IsFinite(spiritPosition) || !IsFinite(stimulusPosition)) return false;
+            if (!float.IsFinite(radius) || radius <= 0f) return false;
+
+            float dx = stimulusPosition.x - spiritPosition.x;
+            float dz = stimulusPosition.z - spiritPosition.z;
+            return (dx * dx + dz * dz) <= radius * radius;
+        }
+
+        /// <summary>
+        /// 刺激の種類に対応するリアクション。Stage 11では固定対応にして、
+        /// 見た目から刺激の意味が読み取れるようにする
+        /// （将来Personalityで確率的に変える余地は、この関数を差し替えるだけで残る）。
+        /// </summary>
+        public static SpiritReactionKind PickReactionFor(SpiritStimulusKind kind)
+        {
+            switch (kind)
+            {
+                case SpiritStimulusKind.ForestGrew:    return SpiritReactionKind.SmallHop;
+                case SpiritStimulusKind.FlowerBloomed: return SpiritReactionKind.TiltHead;
+                default:                                return SpiritReactionKind.TiltHead;
+            }
+        }
+
+        private static bool IsFinite(Vector3 v)
+            => float.IsFinite(v.x) && float.IsFinite(v.y) && float.IsFinite(v.z);
 
         // ── 入力の安全化 ──────────────────────────────────────────────
 

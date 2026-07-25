@@ -19,6 +19,7 @@
 
 using System.Collections.Generic;
 using UnityEngine;
+using ElfVillage.Core;
 using ElfVillage.Tiles;
 
 namespace ElfVillage.Spirits
@@ -60,6 +61,10 @@ namespace ElfVillage.Spirits
         [Tooltip("その場で小さく跳ねるリアクションの高さ")]
         [SerializeField] private float _reactionHopHeight  = 0.05f;
 
+        [Header("世界への反応（Stage 11）")]
+        [Tooltip("花の開花などを知覚できる水平距離。これより遠い刺激は完全に無視する")]
+        [SerializeField] private float _perceptionRadius = 6f;
+
         // ── home森（生成時に確定し、別の森では変更しない） ─────────────
         private readonly List<HexTile> _homeTiles = new();
         private Vector3 _homeCenter;
@@ -78,8 +83,13 @@ namespace ElfVillage.Spirits
 
         private float _swayPhase;
 
+        // 外部刺激への反応（Stage 11）
+        private int                _currentPriority;   // React中の刺激の優先度（通常は0）
+        private SpiritReactionKind _reactKind;         // React中に見せるリアクション
+        private Vector3            _reactLookTarget;   // 向くべき刺激の発生位置
+
         // ObserveTree中のリアクション（1回のObserveTreeにつき最大1回だけ実行する）
-        private SpiritBehaviorMath.ObserveReaction _reaction;
+        private SpiritReactionKind _reaction;
         private float _reactionStartTime;   // このObserveTree内での開始時刻（state経過秒）
         private bool  _reactionScheduled;   // 今回のObserveTreeでリアクションを予定したか
         private bool  _reactionFinished;    // 既に再生し終えたか
@@ -129,18 +139,75 @@ namespace ElfVillage.Spirits
         /// <returns>自分の森が育ったとみなして更新した場合はtrue。</returns>
         public bool TryFollowForestGrowth(IReadOnlyList<HexTile> tiles, Vector3 center, float extentX, float extentZ)
         {
-            if (tiles == null || tiles.Count == 0) return false;
-            if (_homeTiles.Count == 0) return false;
-
-            bool overlaps = false;
-            foreach (var t in tiles)
-            {
-                if (t != null && _homeTiles.Contains(t)) { overlaps = true; break; }
-            }
+            bool overlaps = OverlapsHome(tiles);
             if (!overlaps) return false;
 
             SetHome(tiles, center, extentX, extentZ);
             return true;
+        }
+
+        /// <summary>
+        /// 与えられたタイル群が自分のhome森と重なるか（タイルの同一性で判定する）。
+        /// home更新（TryFollowForestGrowth）と刺激の受理判定の両方がこの1箇所を使うことで、
+        /// 「自分の森かどうか」の意味が2箇所へ散らばらないようにしている。
+        /// </summary>
+        private bool OverlapsHome(IReadOnlyList<HexTile> tiles)
+        {
+            if (tiles == null || tiles.Count == 0) return false;
+            if (_homeTiles.Count == 0) return false;
+
+            foreach (var t in tiles)
+                if (t != null && _homeTiles.Contains(t)) return true;
+            return false;
+        }
+
+        // ── 世界からの刺激（Stage 11） ────────────────────────────────
+
+        private void OnEnable()  => EventBus.Subscribe<SpiritStimulusEvent>(OnStimulus);
+        private void OnDisable() => EventBus.Unsubscribe<SpiritStimulusEvent>(OnStimulus);
+
+        private void OnStimulus(SpiritStimulusEvent evt)
+        {
+            var stimulus = evt.Stimulus;
+
+            if (!Accepts(stimulus)) return;
+
+            // SleepとStretchは外部刺激で中断しない。
+            if (!SpiritBehaviorMath.CanBeInterruptedByStimulus(_state)) return;
+
+            int incoming = SpiritBehaviorMath.GetStimulusPriority(stimulus.Kind);
+            if (!SpiritBehaviorMath.ShouldInterrupt(_currentPriority, incoming)) return;
+
+            BeginReact(stimulus, incoming);
+        }
+
+        /// <summary>この刺激が自分に関係するか（種類ごとの受理条件）。</summary>
+        private bool Accepts(SpiritStimulus stimulus)
+        {
+            switch (stimulus.Kind)
+            {
+                case SpiritStimulusKind.ForestGrew:
+                    // 自分のhome森の成長だけ受理する（遠方の別クラスターは無視）。
+                    return OverlapsHome(stimulus.RelatedTiles);
+
+                case SpiritStimulusKind.FlowerBloomed:
+                    // 知覚距離内の開花だけ受理する（水平距離で判定）。
+                    return SpiritBehaviorMath.IsWithinPerception(
+                        transform.position, stimulus.WorldPosition, _perceptionRadius);
+
+                default:
+                    return false; // 未知の刺激は安全に無視する
+            }
+        }
+
+        private void BeginReact(SpiritStimulus stimulus, int priority)
+        {
+            _currentPriority = priority;
+            _reactKind       = SpiritBehaviorMath.PickReactionFor(stimulus.Kind);
+            _reactLookTarget = stimulus.WorldPosition;
+
+            // EnterStateがWanderの目的地破棄・移動停止・表示リセットをまとめて行う。
+            EnterState(SpiritState.React);
         }
 
         // ── 状態機械 ──────────────────────────────────────────────────
@@ -175,12 +242,30 @@ namespace ElfVillage.Spirits
                     _reactionScheduled = true;
                     break;
 
+                case SpiritState.React:
+                    // 刺激の方向を向く。中断されたWanderの目的地は_isMoving=falseにより破棄され、
+                    // React後はIdleから改めて目的地を選び直す（古い目的地へは戻らない）。
+                    FaceTowards(_reactLookTarget);
+                    break;
+
                 case SpiritState.Idle:
                 case SpiritState.Sleep:
                 case SpiritState.Stretch:
                     // その場に留まる（水平移動しない）。
                     break;
             }
+
+            // React以外の状態へ移ったら、反応中の優先度をクリアして次の刺激を受け付ける。
+            if (next != SpiritState.React) _currentPriority = 0;
+        }
+
+        /// <summary>指定位置の方向を向く（水平のみ）。同一位置なら回転を変えない（不正な回転を作らない）。</summary>
+        private void FaceTowards(Vector3 worldPosition)
+        {
+            var dir = worldPosition - transform.position;
+            dir.y = 0f;
+            if (dir.sqrMagnitude < 0.0001f) return; // 同じ位置ならLookRotationを呼ばない
+            transform.rotation = Quaternion.LookRotation(dir.normalized);
         }
 
         /// <summary>Visualルートの回転・スケールを既定へ戻す（演出の残留を防ぐ単一のリセット地点）。</summary>
@@ -275,6 +360,10 @@ namespace ElfVillage.Spirits
                     case SpiritState.ObserveTree:
                         ApplyObserveReaction();
                         break;
+
+                    case SpiritState.React:
+                        ApplyReactPose();
+                        break;
                 }
             }
 
@@ -295,6 +384,29 @@ namespace ElfVillage.Spirits
             if (_bodyRoot == null) return;
             float p = _stateDuration > 0f ? Mathf.Clamp01(_stateElapsed / _stateDuration) : 1f;
             _bodyRoot.localScale = SpiritBehaviorMath.ComputeStretchScale(p, _stretchIntensity);
+        }
+
+        /// <summary>
+        /// React中の演出。刺激の種類に応じたリアクションを1回だけ再生する。
+        /// 新しいサブ状態機械は作らず、React状態の経過時間をそのまま進行度として使う。
+        /// 水平移動はせず、Visualルートの回転・オフセットだけを動かす。
+        /// </summary>
+        private void ApplyReactPose()
+        {
+            if (_bodyRoot == null) return;
+
+            float p = _stateDuration > 0f ? Mathf.Clamp01(_stateElapsed / _stateDuration) : 1f;
+
+            if (_reactKind == SpiritReactionKind.TiltHead)
+            {
+                float angle = SpiritBehaviorMath.ComputeTiltAngle(p, _tiltMaxAngleDeg);
+                _bodyRoot.localRotation = Quaternion.Euler(0f, 0f, angle);
+            }
+            else
+            {
+                float y = SpiritBehaviorMath.ComputeHopOffset(p, 1, _reactionHopHeight);
+                _bodyRoot.localPosition = new Vector3(0f, y, 0f);
+            }
         }
 
         /// <summary>移動中の着地タイミングで軽く潰れる（Visualルートのみ・体は動かさない）。</summary>
@@ -335,7 +447,7 @@ namespace ElfVillage.Spirits
 
             float p = _reactionDuration > 0f ? Mathf.Clamp01(t / _reactionDuration) : 1f;
 
-            if (_reaction == SpiritBehaviorMath.ObserveReaction.TiltHead)
+            if (_reaction == SpiritReactionKind.TiltHead)
             {
                 float angle = SpiritBehaviorMath.ComputeTiltAngle(p, _tiltMaxAngleDeg);
                 _bodyRoot.localRotation = Quaternion.Euler(0f, 0f, angle);

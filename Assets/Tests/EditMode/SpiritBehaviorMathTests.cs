@@ -469,8 +469,8 @@ namespace ElfVillage.Tests
         {
             var defined = new[]
             {
-                SpiritBehaviorMath.ObserveReaction.TiltHead,
-                SpiritBehaviorMath.ObserveReaction.SmallHop,
+                SpiritReactionKind.TiltHead,
+                SpiritReactionKind.SmallHop,
             };
 
             for (int i = 0; i <= 100; i++)
@@ -480,8 +480,8 @@ namespace ElfVillage.Tests
         [Test]
         public void PickObserveReaction_BothKindsAreReachable()
         {
-            Assert.AreEqual(SpiritBehaviorMath.ObserveReaction.TiltHead, SpiritBehaviorMath.PickObserveReaction(0.1f));
-            Assert.AreEqual(SpiritBehaviorMath.ObserveReaction.SmallHop, SpiritBehaviorMath.PickObserveReaction(0.9f));
+            Assert.AreEqual(SpiritReactionKind.TiltHead, SpiritBehaviorMath.PickObserveReaction(0.1f));
+            Assert.AreEqual(SpiritReactionKind.SmallHop, SpiritBehaviorMath.PickObserveReaction(0.9f));
         }
 
         // ── 14. 不正な乱数入力を安全に処理する ──────────────────────────
@@ -491,8 +491,8 @@ namespace ElfVillage.Tests
         {
             var defined = new[]
             {
-                SpiritBehaviorMath.ObserveReaction.TiltHead,
-                SpiritBehaviorMath.ObserveReaction.SmallHop,
+                SpiritReactionKind.TiltHead,
+                SpiritReactionKind.SmallHop,
             };
 
             foreach (var r in new[] { float.NaN, float.PositiveInfinity, float.NegativeInfinity, -9f, 42f })

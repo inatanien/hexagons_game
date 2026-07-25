@@ -26,5 +26,13 @@ namespace ElfVillage.Spirits
         /// 水平移動は行わず、Visualルートのスケール変形だけで表現する。
         /// </summary>
         Stretch = 4,
+
+        /// <summary>
+        /// 世界からの刺激（森の成長・花の開花など）への反応（Stage 11）。
+        /// Idle / Wander / ObserveTree からのみ入り、Idleへのみ戻る。
+        /// Sleep / Stretch は外部刺激で中断されない。
+        /// 水平移動は行わず、刺激の方向を向いて小さなリアクションを1回見せるだけ。
+        /// </summary>
+        React = 5,
     }
 }
