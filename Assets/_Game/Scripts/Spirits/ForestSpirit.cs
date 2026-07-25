@@ -27,13 +27,11 @@ namespace ElfVillage.Spirits
     public class ForestSpirit : MonoBehaviour
     {
         [Header("見た目（プロトタイプ用の仮モデル）")]
-        [Tooltip("Body周辺に生やす毛玉の数。増やすほどモフモフになる（将来の成長表現用）")]
-        [SerializeField] private int   _fluffLayers = 6;
-        [Tooltip("毛玉の膨らみ倍率。上げるほどモフモフになる（将来の成長表現用）")]
-        [SerializeField] private float _fluffScale  = 1f;
         [Tooltip("森の精霊の体色（淡い緑系）。将来、種族ごとに変える想定。" +
                   "明るくしすぎると光の玉に見えてしまうため、緑がはっきり残る値にしている")]
         [SerializeField] private Color _bodyColor   = new Color(0.50f, 0.74f, 0.42f);
+        // 毛玉の数と膨らみはStage 14から成長段階が決めるため、SerializeFieldでは持たない
+        // （SpiritGrowthMath.ComputeGrowthVisualが唯一の供給元）。
 
         [Header("動き")]
         [SerializeField] private float _idleSwayAmplitude = 0.06f;
@@ -75,6 +73,29 @@ namespace ElfVillage.Spirits
 
         // 刺激種類ごとの見慣れ度。減衰・加算はSpiritMemoryが一元的に扱う。
         [SerializeField] private SpiritMemory _memory = new();
+
+        [Header("成長（Stage 14）")]
+        [Tooltip("Fluff段階へ上がるのに必要な累積体験。Play Modeで短時間に確認したいときは小さくする")]
+        [SerializeField] private float _growthThresholdFluff = 8f;
+        [Tooltip("Bloom段階へ上がるのに必要な累積体験")]
+        [SerializeField] private float _growthThresholdBloom = 20f;
+        [Tooltip("成長演出の変形量。通常のStretch(0.12)より大きくして「育った瞬間」を気づけるようにする")]
+        [SerializeField] private float _growthFlourishIntensity = 0.22f;
+        [Tooltip("成長演出1回の長さ（秒）")]
+        [SerializeField] private float _growthFlourishDuration  = 1.2f;
+
+        // 現在の成長段階。累積体験から導出される値であり、これ自体は保存対象にしない。
+        private SpiritGrowthStage _growthStage;
+        // 到達すべき段階（複数段階を跨いだ場合は最終到達段階を保持する）。
+        private SpiritGrowthStage _pendingGrowthStage;
+
+        private bool  _growthFlourishActive;
+        private float _growthFlourishElapsed;
+        private bool  _growthAppliedThisFlourish;      // 頂点で1回だけ適用するためのガード
+        private bool  _growthFlourishConsumedThisIdle; // 1回のIdle滞在につき1段階に制限する
+
+        /// <summary>検証用の読み取り（表示専用。外部から段階を変更する手段は提供しない）。</summary>
+        public SpiritGrowthStage GrowthStage => _growthStage;
 
         // ── 性格（Stage 13。生成時に一度だけ確定し、以後再計算しない） ──
         //    半減期(_familiarityHalfLife)と上限(_familiarityMaximum)は全性格共通のまま。
@@ -121,6 +142,14 @@ namespace ElfVillage.Spirits
         private readonly List<Material> _runtimeMaterials = new();
         private Transform _bodyRoot;
 
+        // 毛玉の参照。BuildVisualで最大数ぶん確保し、以後は作り直さない（Stage 14）。
+        private Transform[] _fluffTransforms;
+
+        // 毛玉のリング配置パラメータ（段階によらず共通。変わるのは個数とサイズだけ）。
+        private const float FluffRingRadius = 0.075f;
+        private const float FluffRingHeight = 0.028f;
+        private const float FluffBaseSize   = 0.10f;
+
         /// <summary>検証Scene用の現在状態の読み取り（表示専用。外部から状態を変更する手段は提供しない）。</summary>
         public SpiritState CurrentState => _state;
 
@@ -145,7 +174,19 @@ namespace ElfVillage.Spirits
             _swayPhase = randomSeed01 * Mathf.PI * 2f;
 
             transform.position = GroundedPosition(_homeCenter);
+
+            // ★成長Visualの初期化順（Stage 14）
+            //   1. 累積体験から現在の段階を明示的に計算する（default(enum)任せにしない）
+            //   2. 最大段階ぶんの毛玉を一度だけ生成する
+            //   3. 最初のUpdateを待たずに現在段階を適用する
+            //   この順にしないと、生成直後の1フレームだけ別段階の姿が見えてしまう。
+            _growthStage = SpiritGrowthMath.ComputeGrowthStage(
+                _memory.GetLifetimeExperience(), _growthThresholdFluff, _growthThresholdBloom);
+            _pendingGrowthStage = _growthStage;
+
             BuildVisual();
+            ApplyGrowthVisual(_growthStage);
+
             EnterState(SpiritState.Idle);
         }
 
@@ -238,8 +279,27 @@ namespace ElfVillage.Spirits
 
             BeginReact(stimulus, incoming);
 
+            // 5. Familiarity強化 ＋ 6. 累積体験を1増加（SpiritMemoryが同じ経路でまとめて行う）
             _memory.Reinforce(stimulus.Kind, now, _familiarityHalfLife,
                               _profile.FamiliarityGain, _familiarityMaximum);
+
+            // 7. 段階が上がるなら予約だけする。ここでは中断も見た目変更も行わない。
+            QueueGrowthIfNeeded();
+        }
+
+        /// <summary>
+        /// 累積体験から到達段階を求め、上がっていれば予約する（Stage 14）。
+        /// ★予約するだけで、既存の状態も見た目も一切変えない。
+        ///   実際の反映は「安全なIdle」に入ったときだけ行う（UpdateGrowthFlourish）。
+        /// 複数段階を跨いだ場合は最終到達段階を保持し、1段階ずつ消化していく。
+        /// </summary>
+        private void QueueGrowthIfNeeded()
+        {
+            var reached = SpiritGrowthMath.ComputeGrowthStage(
+                _memory.GetLifetimeExperience(), _growthThresholdFluff, _growthThresholdBloom);
+
+            if (SpiritGrowthMath.ShouldQueueGrowthVisual(_pendingGrowthStage, reached))
+                _pendingGrowthStage = reached;
         }
 
         /// <summary>この刺激が自分に関係するか（種類ごとの受理条件）。</summary>
@@ -275,9 +335,18 @@ namespace ElfVillage.Spirits
 
         private void EnterState(SpiritState next)
         {
+            // ★成長演出の後始末をここへ一元化する（Stage 14）。
+            //   React・Wander・ObserveTree・Sleep・Stretch など、Idleを離れる経路は
+            //   すべてEnterStateを通るため、_growthFlourishActiveがIdle以外で残り続けない。
+            EndGrowthFlourish();
+
             // 前の状態の演出（傾き・変形・跳ねの高さ）を必ずここで打ち消してから次へ進む。
             // これにより、どの状態を途中で抜けても表示が残らない。
             ResetVisualPose();
+
+            // Idle滞在ごとに成長演出は1回だけ。状態が変わるたびに解禁する
+            // （＝1回のIdleで1段階、残りは次にIdleへ入ったときに演出される）。
+            _growthFlourishConsumedThisIdle = false;
 
             _state         = next;
             _stateElapsed  = 0f;
@@ -427,6 +496,9 @@ namespace ElfVillage.Spirits
                 switch (_state)
                 {
                     case SpiritState.Idle:
+                        // 成長演出中は通常の揺れを止める（小さな揺れに演出が埋もれないため）。
+                        if (UpdateGrowthFlourish()) break;
+
                         // その場で小さく上下に揺れる。
                         var idlePos = transform.position;
                         idlePos.y = GroundedY() + SpiritBehaviorMath.ComputeIdleSway(
@@ -464,6 +536,119 @@ namespace ElfVillage.Spirits
         //      移動用のHopCountを流用すると意味が変わってしまうため hopCount:1 のまま維持する。
         private int   MoveHopCount  => _profile.HopCount;
         private float MoveHopHeight => _hopHeight * _profile.HopHeightScale;
+
+        // ══ 成長演出（Stage 14。新しいSpiritStateは追加しない）═══════════
+
+        /// <summary>
+        /// 成長演出を進める。Idleの中だけで完結する一時演出であり、状態機械は増やさない。
+        /// </summary>
+        /// <returns>演出中ならtrue（Idleの通常演出を止める）。</returns>
+        private bool UpdateGrowthFlourish()
+        {
+            if (!_growthFlourishActive)
+            {
+                if (!CanStartGrowthFlourish()) return false;
+
+                _growthFlourishActive           = true;
+                _growthFlourishElapsed          = 0f;
+                _growthAppliedThisFlourish      = false;
+                _growthFlourishConsumedThisIdle = true; // このIdle滞在では以後開始しない
+            }
+
+            if (_bodyRoot == null) { EndGrowthFlourish(); return false; }
+
+            _growthFlourishElapsed += Time.deltaTime;
+            float p = _growthFlourishDuration > 0f
+                ? Mathf.Clamp01(_growthFlourishElapsed / _growthFlourishDuration)
+                : 1f;
+
+            // 一時変形はVisualルートのlocalScaleだけ。毛玉そのものには恒久的な倍率を残さない。
+            _bodyRoot.localScale = SpiritBehaviorMath.ComputeStretchScale(p, _growthFlourishIntensity);
+
+            // 伸びの折り返し地点で1段階だけ確定させ、同じ瞬間に綿毛を差し替える。
+            // ★段階の確定と見た目の適用を同一フレームの同一地点で行うことで、
+            //   ここより前に中断されれば「未確定＋見た目そのまま」、
+            //   ここより後に中断されれば「確定済み＋見た目適用済み」となり、
+            //   どちらでも半端な状態が残らない。
+            if (!_growthAppliedThisFlourish && p >= 0.5f)
+            {
+                _growthStage = SpiritGrowthMath.ResolveGrowthTransition(_growthStage, _pendingGrowthStage);
+                ApplyGrowthVisual(_growthStage);
+                _growthAppliedThisFlourish = true;
+            }
+
+            if (p >= 1f)
+            {
+                _growthFlourishActive      = false;
+                _growthFlourishElapsed     = 0f;
+                _growthAppliedThisFlourish = false;
+                ResetVisualPose();
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// 成長演出を開始してよいか。Sleep・Stretch・React・Wander・ObserveTree・移動中は開始しない
+        /// （状態がIdleであることを条件にしているため、これらは自動的に除外される）。
+        /// </summary>
+        private bool CanStartGrowthFlourish()
+            => _state == SpiritState.Idle
+            && !_isMoving
+            && !_growthFlourishConsumedThisIdle
+            && (int)_pendingGrowthStage > (int)_growthStage;
+
+        /// <summary>
+        /// 成長演出の中断・終了をまとめて処理する唯一の地点。
+        /// 頂点前なら段階は未確定のままpendingが残り、次の安全なIdleで最初からやり直す。
+        /// 頂点後なら段階も見た目も確定済みで、そのまま保持される（同じ段階は再演出しない）。
+        /// </summary>
+        private void EndGrowthFlourish()
+        {
+            if (!_growthFlourishActive) return;
+
+            _growthFlourishActive      = false;
+            _growthFlourishElapsed     = 0f;
+            _growthAppliedThisFlourish = false;
+            ResetVisualPose();
+        }
+
+        /// <summary>
+        /// 成長段階に応じて綿毛の「有効数・配置・サイズ」を更新する（永続Visual）。
+        /// ★GameObject・Mesh・Materialを作り直さず、事前生成した配列を書き換えるだけ。
+        ///   毎回のGetComponentsInChildrenやLINQ検索も行わない。
+        /// ★_bodyRoot自体には触れないため、ResetVisualPose（＝一時演出の打ち消し）が
+        ///   成長後の毛玉の数・配置・サイズを元へ戻すことはない。
+        /// </summary>
+        private void ApplyGrowthVisual(SpiritGrowthStage stage)
+        {
+            if (_fluffTransforms == null) return;
+
+            var visual = SpiritGrowthMath.ComputeGrowthVisual(stage);
+            int layers = Mathf.Clamp(visual.FluffLayers, 1, _fluffTransforms.Length);
+
+            for (int i = 0; i < _fluffTransforms.Length; i++)
+            {
+                var fluff = _fluffTransforms[i];
+                if (fluff == null) continue;
+
+                bool active = i < layers;
+                if (fluff.gameObject.activeSelf != active) fluff.gameObject.SetActive(active);
+                if (!active) continue;
+
+                // ★有効な個数でリングを組み直す。
+                //   最大数のまま一部を隠すと、残った毛玉が円周上で偏ってしまうため、
+                //   段階が変わるたびに有効なぶんだけで均等配置し直す（確保は発生しない）。
+                float angle = i * (Mathf.PI * 2f / layers);
+                fluff.localPosition = new Vector3(
+                    Mathf.Cos(angle) * FluffRingRadius,
+                    Mathf.Sin(angle * 2f) * FluffRingHeight,
+                    Mathf.Sin(angle) * FluffRingRadius);
+
+                fluff.localScale = Vector3.one * (FluffBaseSize * visual.FluffScale);
+            }
+        }
 
         /// <summary>Sleep中は少し縮んで「丸くなっている」ように見せる（移動はしない）。</summary>
         private void ApplySleepPose()
@@ -584,18 +769,14 @@ namespace ElfVillage.Spirits
             body.localPosition = Vector3.zero;
             body.localScale    = new Vector3(0.17f, 0.15f, 0.17f);
 
-            // Fluff: Bodyの周囲に配置して輪郭をモフモフにする
-            int layers = Mathf.Max(0, _fluffLayers);
-            for (int i = 0; i < layers; i++)
-            {
-                float angle = i * (Mathf.PI * 2f / Mathf.Max(1, layers));
-                var fluff = CreatePart(PrimitiveType.Sphere, root.transform, "Fluff" + i, fluffMat);
-                fluff.localPosition = new Vector3(
-                    Mathf.Cos(angle) * 0.075f,
-                    Mathf.Sin(angle * 2f) * 0.028f,
-                    Mathf.Sin(angle) * 0.075f);
-                fluff.localScale = Vector3.one * (0.10f * Mathf.Max(0.01f, _fluffScale));
-            }
+            // Fluff: Bodyの周囲に配置して輪郭をモフモフにする。
+            // ★最大段階(Bloom)ぶんをここで一度だけ生成し、参照を固定長配列で保持する。
+            //   成長時はこの配列のSetActive・localPosition・localScaleだけを更新するため、
+            //   GameObject・Mesh・Materialの生成破棄も、毎回の子オブジェクト検索も起こらない。
+            //   実際の数・配置・サイズはこの直後のApplyGrowthVisualが段階に応じて決める。
+            _fluffTransforms = new Transform[SpiritGrowthMath.MaxFluffLayers];
+            for (int i = 0; i < _fluffTransforms.Length; i++)
+                _fluffTransforms[i] = CreatePart(PrimitiveType.Sphere, root.transform, "Fluff" + i, fluffMat);
 
             // 目: 正面（+Z）に小さく2つ
             CreateEye(root.transform, -1f, eyeMat);
