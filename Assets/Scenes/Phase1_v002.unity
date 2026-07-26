@@ -5001,6 +5001,18 @@ MonoBehaviour:
   _windDuration: 3
   _windInterval: 20
   _forestLeafBaseColor: {r: 0.13, g: 0.55, b: 0.13, a: 1}
+  _leafTextures:
+  - {fileID: 2800000, guid: eb5a296bcbb0b4a4493b4fe9e359f5a7, type: 3}
+  - {fileID: 2800000, guid: 77856caa54977e04a9d3ff2049a3d938, type: 3}
+  - {fileID: 2800000, guid: 82cf9c276b7bc3243ba2f4a8ca46538d, type: 3}
+  - {fileID: 2800000, guid: 9649923b1901b8644b1b997a6a425ea2, type: 3}
+  - {fileID: 2800000, guid: a202378f4c4757e4dab8b51280ec2976, type: 3}
+  - {fileID: 2800000, guid: 70da6024742dfca419b9e5020d3d5535, type: 3}
+  - {fileID: 2800000, guid: 14086152f3fa97f4b8c19b032fa7fea8, type: 3}
+  - {fileID: 2800000, guid: cb147b0b4b9c33e499e734b32cdae39f, type: 3}
+  - {fileID: 2800000, guid: 6ad9c5888bff0be4ebd69449ceeea5ae, type: 3}
+  - {fileID: 2800000, guid: 2459944c43766df46a8c849c9d17ff3b, type: 3}
+  _leafTextureTint: 0.35
 --- !u!4 &1015676106
 Transform:
   m_ObjectHideFlags: 0
@@ -6320,6 +6332,66 @@ MonoBehaviour:
     m_PersistentCalls:
       m_Calls: []
   m_IsOn: 1
+--- !u!1 &1247043979
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1247043980}
+  - component: {fileID: 1247043981}
+  m_Layer: 0
+  m_Name: TreeBillboards
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1247043980
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1247043979}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 2081529117}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1247043981
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1247043979}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c5fe899a13c558a41973356dceb62c97, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _treeTextures:
+  - {fileID: 2800000, guid: ec196b2d4167d804bb6f71ab0ab17a61, type: 3}
+  - {fileID: 2800000, guid: 4cd0e18d5e63e2545b49cef79258f0c2, type: 3}
+  - {fileID: 2800000, guid: 4586a43c2150bb6488a43b18ca269cc9, type: 3}
+  - {fileID: 2800000, guid: 1a9ffc8358519934eb120385ac3af6cb, type: 3}
+  - {fileID: 2800000, guid: ab4c374e633a13d4386d87983532ee13, type: 3}
+  - {fileID: 2800000, guid: b0de4c0ba2e43e34f8139e62e142a1ef, type: 3}
+  - {fileID: 2800000, guid: 1d9183b543e537a40a790984f5979965, type: 3}
+  - {fileID: 2800000, guid: 59b85720494b92948a9fb0320e434c74, type: 3}
+  - {fileID: 2800000, guid: f0ae20ab88db4424c897129999b0842f, type: 3}
+  - {fileID: 2800000, guid: 9d51fe457f9e66943b04b043a0ece478, type: 3}
+  _height: 0.95
+  _widthRatio: 0.95
+  _coneHeight: 0.32
+  _coneRadius: 0.06
+  _coneColor: {r: 0.42, g: 0.28, b: 0.15, a: 1}
 --- !u!1 &1248543606
 GameObject:
   m_ObjectHideFlags: 0
@@ -9974,6 +10046,7 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 1015676106}
+  - {fileID: 1247043980}
   m_Father: {fileID: 1124468295}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &2081598543
