@@ -536,9 +536,20 @@ namespace ElfVillage.Tests
         {
             var go = new GameObject("TestForestSpiritSpawner");
             var spawner = go.AddComponent<ForestSpiritSpawner>();
+            SetMinClusterSizeToOne(spawner);
             InvokeLifecycle(spawner, "OnEnable");
             return spawner;
         }
+
+        /// <summary>
+        /// 本番の既定値は4枚（Stage 15）だが、このファイルのテストは
+        /// 生成条件ではなく生成後の挙動を見ているため、旧来どおり小さな森でも生成させる。
+        /// 生成条件そのものはSpiritIntegrationTestsで検証する。
+        /// </summary>
+        private static void SetMinClusterSizeToOne(ForestSpiritSpawner spawner)
+            => typeof(ForestSpiritSpawner)
+                .GetField("_minClusterSizeToSpawn", BindingFlags.NonPublic | BindingFlags.Instance)
+                .SetValue(spawner, 1);
 
         private static HexTile MakeTileAt(Vector3 position)
         {

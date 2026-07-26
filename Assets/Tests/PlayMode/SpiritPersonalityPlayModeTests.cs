@@ -94,6 +94,9 @@ namespace ElfVillage.Tests
             var spawner = go.AddComponent<ForestSpiritSpawner>();
             typeof(ForestSpiritSpawner).GetField("_personalityMode", Priv).SetValue(spawner, mode);
             typeof(ForestSpiritSpawner).GetField("_fixedPersonality", Priv).SetValue(spawner, fixedKind);
+
+            // 本番の既定は4枚（Stage 15）。ここでは3枚の森で性格の挙動を見るため1へ下げる。
+            typeof(ForestSpiritSpawner).GetField("_minClusterSizeToSpawn", Priv).SetValue(spawner, 1);
             return spawner;
         }
 

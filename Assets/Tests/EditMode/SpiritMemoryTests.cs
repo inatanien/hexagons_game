@@ -583,18 +583,27 @@ namespace ElfVillage.Tests
             {
                 relay   = go.AddComponent<SpiritStimulusRelay>();
                 spawner = go.AddComponent<ForestSpiritSpawner>();
+                SetMinClusterSizeToOne(spawner);
                 Invoke(relay,   "OnEnable");
                 Invoke(spawner, "OnEnable");
             }
             else
             {
                 spawner = go.AddComponent<ForestSpiritSpawner>();
+                SetMinClusterSizeToOne(spawner);
                 relay   = go.AddComponent<SpiritStimulusRelay>();
                 Invoke(spawner, "OnEnable");
                 Invoke(relay,   "OnEnable");
             }
             return spawner;
         }
+
+        /// <summary>
+        /// 本番の既定値は4枚（Stage 15）だが、ここでは記憶の挙動を見ているため
+        /// 旧来どおり小さな森でも生成させる。生成条件はSpiritIntegrationTestsで検証する。
+        /// </summary>
+        private static void SetMinClusterSizeToOne(ForestSpiritSpawner spawner)
+            => typeof(ForestSpiritSpawner).GetField("_minClusterSizeToSpawn", Priv).SetValue(spawner, 1);
 
         [Test]
         public void SpawningForestGrowth_IsAlwaysRemembered_RegardlessOfSubscriptionOrder()

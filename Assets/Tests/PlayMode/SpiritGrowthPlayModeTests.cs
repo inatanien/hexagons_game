@@ -87,6 +87,8 @@ namespace ElfVillage.Tests
                 .SetValue(spawner, ForestSpiritSpawner.PersonalitySelectionMode.Fixed);
             typeof(ForestSpiritSpawner).GetField("_fixedPersonality", Priv).SetValue(spawner, kind);
 
+            // 本番の既定は4枚（Stage 15）。ここでは3枚の森で成長の挙動を見るため1へ下げる。
+            typeof(ForestSpiritSpawner).GetField("_minClusterSizeToSpawn", Priv).SetValue(spawner, 1);
             return spawner;
         }
 

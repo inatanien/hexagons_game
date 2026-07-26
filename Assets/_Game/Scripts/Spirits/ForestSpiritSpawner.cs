@@ -31,6 +31,12 @@ namespace ElfVillage.Spirits
         [Tooltip("クラスターの外周からどれだけ内側に留めるか（森の外へ出ないようにする余白）")]
         [SerializeField] private float _extentInset  = 0.6f;
 
+        [Header("生成条件（Stage 15）")]
+        [Tooltip("精霊が住み着くのに必要な森クラスタの最小枚数。" +
+                  "本編では森タイル1枚ごとに成長イベントが飛ぶため、これが無いと" +
+                  "最初の1枚に住人が現れてしまう。プロトタイプの旧挙動は1で再現できる")]
+        [SerializeField] private int _minClusterSizeToSpawn = 4;
+
         [Header("性格（Stage 13）")]
         [Tooltip("DeterministicFromHome: home森の代表座標から決定的に決める（本番の既定）。" +
                   "Fixed: _fixedPersonalityを必ず使う（検証用）")]
@@ -39,6 +45,9 @@ namespace ElfVillage.Spirits
         [SerializeField] private SpiritPersonalityKind _fixedPersonality = SpiritPersonalityKind.Calm;
 
         private ForestSpirit _spirit;
+
+        // 重複排除用の使い回しバッファ（イベントごとに確保しないため）。
+        private readonly HashSet<HexTile> _uniqueTileBuffer = new();
 
         private void OnEnable()  => EventBus.Subscribe<TerrainGrowthEvent<ForestGrowthMetrics>>(OnForestGrow);
         private void OnDisable() => EventBus.Unsubscribe<TerrainGrowthEvent<ForestGrowthMetrics>>(OnForestGrow);
@@ -51,7 +60,15 @@ namespace ElfVillage.Spirits
 
             if (_spirit == null)
             {
-                // 最初に対象となった森クラスターにだけ1体生成する。
+                // ★判定には「これからhomeになるタイル集合そのもの」の枚数を使う。
+                //   evt.Metrics.LargestClusterSize は名前に反して対象クラスタの枚数だが、
+                //   名前だけを見て世界最大値と誤解される余地があるため、
+                //   homeとして実際に採用する集合を直接数えて意味のずれを無くしている。
+                int clusterSize = CountUniqueTiles(evt.AffectedTiles);
+
+                if (!SpiritSpawnPolicy.ShouldSpawn(false, clusterSize, _minClusterSizeToSpawn)) return;
+
+                // 最初に条件を満たした森クラスターにだけ1体生成する。
                 SpawnSpirit(evt.AffectedTiles, center, extentX, extentZ);
 
                 // 生まれた森の成長を、最初の体験として明示的に渡す。
@@ -128,6 +145,23 @@ namespace ElfVillage.Spirits
             }
 
             return found;
+        }
+
+        /// <summary>
+        /// 有効（非null）なタイルのユニーク件数を数える。
+        /// 現在のForestGrowthEvaluatorはBFSのvisited集合により重複を出さないが、
+        /// 生成条件が将来の評価器の実装詳細に依存しないよう、ここで明示的に重複を排除する。
+        /// バッファは使い回すため、イベントごとの確保は発生しない。
+        /// </summary>
+        private int CountUniqueTiles(IReadOnlyList<HexTile> tiles)
+        {
+            if (tiles == null) return 0;
+
+            _uniqueTileBuffer.Clear();
+            foreach (var tile in tiles)
+                if (tile != null) _uniqueTileBuffer.Add(tile);
+
+            return _uniqueTileBuffer.Count;
         }
 
         /// <summary>クラスターのAABBから中心と行動半幅を求める（森の外へ出ないよう内側へ寄せる）。</summary>

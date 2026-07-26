@@ -1210,6 +1210,9 @@ namespace ElfVillage.Tests
             typeof(ForestSpiritSpawner).GetField("_personalityMode", Priv).SetValue(spawner, mode);
             typeof(ForestSpiritSpawner).GetField("_fixedPersonality", Priv).SetValue(spawner, fixedKind);
 
+            // 本番の既定は4枚（Stage 15）だが、ここでは性格の挙動を見ているため小さな森でも生成させる。
+            typeof(ForestSpiritSpawner).GetField("_minClusterSizeToSpawn", Priv).SetValue(spawner, 1);
+
             Invoke(spawner, "OnEnable"); // EditModeでは自動発火しないため明示的に購読させる
             return spawner;
         }
