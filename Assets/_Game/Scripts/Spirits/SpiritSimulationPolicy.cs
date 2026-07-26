@@ -28,14 +28,10 @@ namespace ElfVillage.Spirits
         /// 精霊が意図せず動き続けるより、止まっている方が気づきやすく実害も小さいため。
         /// </summary>
         public static bool ShouldSimulate(GameInteractionState state)
-        {
-            switch (state)
-            {
-                case GameInteractionState.Playing:   return true;
-                case GameInteractionState.PauseMenu: return true;
-                case GameInteractionState.Settings:  return false;
-                default:                              return false;
-            }
-        }
+            // ★判定の実体はCoreへ一元化した（Stage 16）。
+            //   通知UIも同じ条件で止める必要があり、UIからSpiritsを参照できない
+            //   （asmdefの依存方向が崩れる）ため、共通判定をCoreへ移している。
+            //   この関数は「精霊にとってのシミュレーション可否」という意味を保つために残す。
+            => InteractionTimePolicy.ShouldAdvanceTime(state);
     }
 }
