@@ -8,6 +8,16 @@ namespace ElfVillage.Tiles
     public static class HexMeshBuilder
     {
         /// <summary>
+        /// Build() が作る六角柱の上面ローカルY（柱は上下対称に ±height/2 で作られる）。
+        ///
+        /// ★プロップの接地高さは必ずここを基準にする。
+        ///   この値がBuild()の中だけに閉じていたため、プロップ側が別の高さを地面と
+        ///   思い込み、木が0.10だけ宙に浮いていたことがある。
+        ///   Build()自身もこの関数を使うので、two sourcesに割れることはない。
+        /// </summary>
+        public static float TopY(float height) => height * 0.5f;
+
+        /// <summary>
         /// フラットトップの六角柱メッシュを生成する。
         /// </summary>
         /// <param name="outerRadius">外接円半径（頂点-中心距離）</param>
@@ -16,7 +26,7 @@ namespace ElfVillage.Tiles
         {
             var mesh = new Mesh { name = "HexTile" };
 
-            float h = height * 0.5f;
+            float h = TopY(height);
             // 頂点配列: 上面中心(1) + 上面外周(6) + 下面中心(1) + 下面外周(6) + 側面用上下(12) = 26
             var verts = new Vector3[26];
             var uvs   = new Vector2[26];

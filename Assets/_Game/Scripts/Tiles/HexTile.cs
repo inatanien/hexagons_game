@@ -497,10 +497,19 @@ namespace ElfVillage.Tiles
             }
         }
 
+        /// <summary>
+        /// プロップを地面からわずかに浮かせる量。Z-fightingを防ぐためだけの下駄で、
+        /// 「タイル上面がどこか」（HexMeshBuilder.TopY）とは別の概念なので定数で分けておく。
+        /// </summary>
+        internal const float PropLiftY = 0.01f;
+
         private static void SpawnTreesStatic(TileType type, Transform parent, float tileHeight)
         {
             int   count  = Mathf.Max(1, type.propCount);
-            float ground = tileHeight + 0.01f;
+            // ★接地はメッシュの実際の上面を基準にする。
+            //   長らく `tileHeight + 0.01` を地面として使っており、木が0.10浮いていた
+            //   （House/Flower/Water は見た目が確定しているため今回は変更しない）。
+            float ground = HexMeshBuilder.TopY(tileHeight) + PropLiftY;
             for (int i = 0; i < count; i++)
             {
                 // プレビューには coord が無いため index のみで疑似乱数を作る
@@ -780,7 +789,7 @@ namespace ElfVillage.Tiles
         /// </summary>
         private void SpawnSingleTree(TileType type, Transform parent, Vector3 offset, int seed)
         {
-            float ground = tileHeight + 0.01f;
+            float ground = HexMeshBuilder.TopY(tileHeight) + PropLiftY;
             GameObject prefab = PickTreeVariant(type, seed, out int variantIndex);
 
             if (prefab != null)
@@ -866,7 +875,7 @@ namespace ElfVillage.Tiles
         internal static void SpawnSingleTreeForVariantStatic(TerrainVariantDefinition variant, Transform parent,
                                                                Vector3 offset, int seed, float tileHeight)
         {
-            float ground = tileHeight + 0.01f;
+            float ground = HexMeshBuilder.TopY(tileHeight) + PropLiftY;
             GameObject prefab = PickTreeVariantFrom(variant.propPrefabs, seed, out int variantIndex);
 
             if (prefab != null)
