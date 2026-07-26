@@ -765,7 +765,13 @@ namespace ElfVillage.Tiles
         // 半径を sqrt(i/count) で増やすことで、リング状に偏らせず面積あたりの密度を均一にする。
         // internal化（Session 11）: TilePropVisualBuilderからも同じ半径・角度定数を参照するため。
         internal const float TreeGoldenAngleDeg = 137.50776f;
-        internal const float TreeMaxRadius      = 1.35f; // タイル境界（inRadius≈1.73）から木の葉半径ぶん内側まで使う
+        // タイルの端まで木を茂らせる。
+        // ★六角形の寸法（outerRadius=2.0）: 角までが2.0、辺の中点までが約1.73。
+        //   1.70は「辺の中点とほぼ同じ距離」で、木の絵は幅0.9（半分で0.45）あるため、
+        //   ここへ置いた木の葉は角の方向でも2.15まで届き、境界の内側に隙間が残らない。
+        //   葉が隣のタイルへ少しはみ出すが、森が地続きに見えるので意図どおり。
+        //   （以前の1.35は、葉が境界を越えないよう内側へ抑えた値だった）
+        internal const float TreeMaxRadius      = 1.70f;
 
         private void SpawnTrees(TileType type, Transform parent)
         {

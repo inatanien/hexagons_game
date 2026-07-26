@@ -19,7 +19,7 @@ MonoBehaviour:
   groundTexture: {fileID: 2800000, guid: 03ccec239bf53db4abcc3b0aaff52bbc, type: 3}
   isActive: 1
   propType: 1
-  propCount: 18
+  propCount: 24
   treeVariantPrefabs:
   - {fileID: 0}
   - {fileID: 0}

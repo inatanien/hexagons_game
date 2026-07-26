@@ -15,7 +15,7 @@ MonoBehaviour:
   category: 0
   variantName: Forest
   propType: 1
-  propCount: 18
+  propCount: 24
   propPrefabs:
   - {fileID: 0}
   - {fileID: 0}

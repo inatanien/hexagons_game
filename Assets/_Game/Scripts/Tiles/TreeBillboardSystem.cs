@@ -23,7 +23,7 @@ namespace ElfVillage.Tiles
     public class TreeBillboardSystem : MonoBehaviour
     {
         [Header("木の絵")]
-        [Tooltip("木のビルボードに使う画像。複数入れると木ごとにランダムで選ばれる。" +
+        [Tooltip("木のビルボードに使う画像。木ごとに重み付きで選ばれる（TreeVariantWeights）。" +
                   "未設定の場合は従来どおりプリミティブ（円柱＋球）の木になる")]
         [SerializeField] private Texture2D[] _treeTextures;
 
@@ -52,6 +52,8 @@ namespace ElfVillage.Tiles
 
         // 画像1枚につきMaterial 1つ。同じ絵の木どうしはまとめて描画される。
         private Material[] _materials;
+        // _materialsと同じ並びの抽選重み（画像の名前から決まる）。
+        private int[] _weights;
 
         private Camera _camera;
 
@@ -71,6 +73,7 @@ namespace ElfVillage.Tiles
             if (_materials != null)
                 foreach (var m in _materials) DestroyRuntimeAsset(m);
             _materials = null;
+            _weights   = null;
 
             _billboards.Clear();
         }
@@ -96,7 +99,9 @@ namespace ElfVillage.Tiles
         {
             if (!HasTextures || parent == null) return false;
 
-            int index = Mathf.Abs(seed) % _materials.Length;
+            int index = TreeVariantWeights.Select(_weights, seed);
+            if (index < 0 || index >= _materials.Length) index = 0;
+
             float sizeMul = SizeMultiplier(seed);
 
             float h = Mathf.Max(0.01f, _height * sizeMul);
@@ -180,7 +185,8 @@ namespace ElfVillage.Tiles
             var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
             if (shader == null) return;
 
-            var list = new List<Material>();
+            var list  = new List<Material>();
+            var names = new List<string>();
             foreach (var tex in _treeTextures)
             {
                 if (tex == null) continue;
@@ -204,9 +210,11 @@ namespace ElfVillage.Tiles
                 if (mat.HasProperty("_Metallic"))   mat.SetFloat("_Metallic", 0f);
 
                 list.Add(mat);
+                names.Add(tex.name);
             }
 
             _materials = list.ToArray();
+            _weights   = TreeVariantWeights.BuildWeights(names.ToArray());
         }
 
         private static void RemoveCollider(GameObject go)
