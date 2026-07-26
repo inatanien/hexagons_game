@@ -27,6 +27,22 @@ namespace ElfVillage.Tiles
         [Header("葉っぱVFX色")]
         [SerializeField] private Color _forestLeafBaseColor = new Color(0.13f, 0.55f, 0.13f, 1f);
 
+        [Header("葉っぱの絵柄")]
+        [Tooltip("舞い散る葉に使う画像。複数入れると粒ごとにランダムで選ばれる。" +
+                  "未設定の場合は従来どおり色だけの粒（四角）になる")]
+        [SerializeField] private Texture2D[] _leafTextures;
+        [Tooltip("葉の絵柄を森の色でどれだけ染めるか。0=絵の色そのまま / 1=従来どおり森の色。" +
+                  "葉の画像は既に色を持っているため、強く染めると絵柄が潰れる")]
+        [Range(0f, 1f)]
+        [SerializeField] private float _leafTextureTint = 0.35f;
+
+        // 10枚の葉を1枚へまとめたアトラス。1テクスチャに収めることで、
+        // 絵柄が増えてもドローコールが増えない（TextureSheetAnimationのグリッドで拾う）。
+        private Texture2D _leafAtlas;
+        private int _leafAtlasColumns;
+        private int _leafAtlasRows;
+        private int _leafAtlasCount;
+
         // クラスターごとにエフェクトを管理する。TileTypeでは区切らず、実際のタイル集合の
         // 重なりだけで同一物理クラスターかどうかを判定する（FlowerPetalSystem._clustersと同じ設計）。
         // 以前はTileTypeをキーにしたDictionary<TileType, List<ClusterEntry>>だったため、
@@ -43,6 +59,89 @@ namespace ElfVillage.Tiles
         private void Awake()
         {
             _cachedParticleMat = ForestBreathEffect.BuildMaterial();
+
+            // ★アトラスもタイル配置と同フレームに作ると重いため、Materialと同じくAwakeで用意する。
+            BuildLeafAtlas();
+
+            if (_leafAtlas != null && _cachedParticleMat != null)
+            {
+                if (_cachedParticleMat.HasProperty("_BaseMap")) _cachedParticleMat.SetTexture("_BaseMap", _leafAtlas);
+                if (_cachedParticleMat.HasProperty("_MainTex")) _cachedParticleMat.SetTexture("_MainTex", _leafAtlas);
+                _cachedParticleMat.mainTexture = _leafAtlas;
+            }
+        }
+
+        /// <summary>
+        /// 割り当てられた葉の画像を1枚のアトラスへ並べる。
+        /// ★1テクスチャにまとめる理由
+        ///   ParticleSystemのTextureSheetAnimationは1枚のテクスチャを格子で切って使う。
+        ///   絵柄ごとに別テクスチャを渡すと1つのParticleSystemでは扱えず、
+        ///   絵柄の数だけドローコールが増える。まとめておけば10種類でも1回で描ける。
+        /// 画像が未設定・サイズ不揃いの場合はアトラスを作らず、従来どおり色だけの粒になる。
+        /// </summary>
+        private void BuildLeafAtlas()
+        {
+            if (_leafTextures == null || _leafTextures.Length == 0) return;
+
+            // 有効な画像だけを集める（欠番や読み取り不可を除く）
+            var valid = new List<Texture2D>();
+            foreach (var t in _leafTextures)
+            {
+                if (t == null) continue;
+                if (!t.isReadable)
+                {
+                    Debug.LogWarning($"[WorldBreathSystem] 葉テクスチャ {t.name} が Read/Write 無効のため使用できません。" +
+                                      "インポート設定で Read/Write Enabled を有効にしてください。");
+                    continue;
+                }
+                valid.Add(t);
+            }
+            if (valid.Count == 0) return;
+
+            // 全て同じ寸法であることを前提にする（揃っていないと格子が破綻する）
+            int cell = valid[0].width;
+            foreach (var t in valid)
+            {
+                if (t.width == cell && t.height == cell) continue;
+                Debug.LogWarning($"[WorldBreathSystem] 葉テクスチャの寸法が揃っていません（{t.name}）。" +
+                                  "全て同じ正方形サイズにしてください。葉の絵柄は無効になります。");
+                return;
+            }
+
+            // ★格子は必ず枚数で割り切れる形にする（10枚なら5×2）。
+            //   余りセルができると、そのセルを引いた粒が透明になって「葉が出ない」ように見える。
+            //   正方形に近い形から始めて、割り切れる列数まで増やす。
+            _leafAtlasCount   = valid.Count;
+            _leafAtlasColumns = Mathf.Max(1, Mathf.CeilToInt(Mathf.Sqrt(_leafAtlasCount)));
+            while (_leafAtlasColumns < _leafAtlasCount && _leafAtlasCount % _leafAtlasColumns != 0)
+                _leafAtlasColumns++;
+            _leafAtlasRows = _leafAtlasCount / _leafAtlasColumns;
+
+            _leafAtlas = new Texture2D(_leafAtlasColumns * cell, _leafAtlasRows * cell,
+                                        TextureFormat.RGBA32, false)
+            {
+                name       = "ForestLeafAtlas_Runtime",
+                wrapMode   = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+            };
+
+            // 空きセルは完全な透明で埋める（そのセルを引いた粒は何も描かれない）
+            var clear = new Color[_leafAtlas.width * _leafAtlas.height];
+            for (int i = 0; i < clear.Length; i++) clear[i] = new Color(0f, 0f, 0f, 0f);
+            _leafAtlas.SetPixels(clear);
+
+            // ★TextureSheetAnimationの格子は左上から右へ、次の行へ進む。
+            //   Texture2Dの座標は左下原点なので、行を上下反転して書き込む。
+            for (int i = 0; i < _leafAtlasCount; i++)
+            {
+                int col = i % _leafAtlasColumns;
+                int row = i / _leafAtlasColumns;
+                int y   = (_leafAtlasRows - 1 - row) * cell;
+
+                _leafAtlas.SetPixels(col * cell, y, cell, cell, valid[i].GetPixels());
+            }
+
+            _leafAtlas.Apply(false, false);
         }
 
         private void Start()
@@ -66,6 +165,14 @@ namespace ElfVillage.Tiles
             foreach (var e in _clusters)
                 e.DestroyEffects();
             _clusters.Clear();
+
+            // ランタイム生成したアトラスは自動では解放されないため明示的に破棄する。
+            if (_leafAtlas != null)
+            {
+                if (Application.isPlaying) Destroy(_leafAtlas);
+                else                       DestroyImmediate(_leafAtlas);
+                _leafAtlas = null;
+            }
         }
 
         private void OnForestGrow(TerrainGrowthEvent<ForestGrowthMetrics> evt)
@@ -113,7 +220,8 @@ namespace ElfVillage.Tiles
             {
                 if (cluster.Gentle == null)
                     cluster.Gentle = new ForestBreathEffect(
-                        _forestLeafBaseColor, isWind: false, transform, _cachedParticleMat);
+                        _forestLeafBaseColor, isWind: false, transform, _cachedParticleMat,
+                        _leafAtlasColumns, _leafAtlasRows, _leafAtlasCount, _leafTextureTint);
                 cluster.Gentle.UpdateBounds(evt.AffectedTiles);
                 cluster.Gentle.Play();
             }
@@ -123,7 +231,8 @@ namespace ElfVillage.Tiles
             {
                 if (cluster.Wind == null)
                     cluster.Wind = new ForestBreathEffect(
-                        _forestLeafBaseColor, isWind: true, transform, _cachedParticleMat);
+                        _forestLeafBaseColor, isWind: true, transform, _cachedParticleMat,
+                        _leafAtlasColumns, _leafAtlasRows, _leafAtlasCount, _leafTextureTint);
                 cluster.Wind.UpdateBounds(evt.AffectedTiles);
                 cluster.Wind.SetWindStrength(CalcWindStrength(size));
 
@@ -185,7 +294,8 @@ namespace ElfVillage.Tiles
             private readonly ParticleSystem _ps;
 
             internal ForestBreathEffect(Color tileColor, bool isWind,
-                                         Transform parent, Material sharedMat)
+                                         Transform parent, Material sharedMat,
+                                         int atlasColumns, int atlasRows, int atlasCount, float textureTint)
             {
                 _go = new GameObject(isWind ? "ForestWind" : "ForestGentle");
                 // WorldBreathSystem の子にすることで hierarchy を整理し
@@ -197,7 +307,38 @@ namespace ElfVillage.Tiles
                 if (sharedMat != null)
                     _go.GetComponent<ParticleSystemRenderer>().material = sharedMat;
 
-                Setup(tileColor, isWind);
+                Setup(tileColor, isWind, atlasColumns, atlasRows, atlasCount, textureTint);
+            }
+
+            /// <summary>
+            /// アトラスの格子から、粒ごとにランダムな1枚を選ばせる。
+            /// アニメーションはさせず（1粒＝1枚の絵柄で固定）、
+            /// startFrameのランダムだけで絵柄のばらつきを作る。
+            /// </summary>
+            private void SetupLeafSprites(int columns, int rows, int count)
+            {
+                var tsa = _ps.textureSheetAnimation;
+
+                if (columns <= 0 || rows <= 0 || count <= 1)
+                {
+                    tsa.enabled = false;   // 絵柄が1枚以下なら格子で切る必要がない
+                    return;
+                }
+
+                tsa.enabled     = true;
+                tsa.mode        = ParticleSystemAnimationMode.Grid;
+                tsa.numTilesX   = columns;
+                tsa.numTilesY   = rows;
+                tsa.animation   = ParticleSystemAnimationType.WholeSheet;
+                tsa.timeMode    = ParticleSystemAnimationTimeMode.Lifetime;
+
+                // frameOverTime を 0 に固定すると、寿命の間ずっと同じコマ＝同じ葉の絵柄になる。
+                tsa.frameOverTime = new ParticleSystem.MinMaxCurve(0f);
+
+                // ★startFrame は「コマ番号」で指定する（0〜1の正規化値ではない）。
+                //   0〜枚数 の範囲でランダムに選ばせることで、粒ごとに違う葉になる。
+                //   格子は割り切れる形にしてあるので、空きセルを引くことはない。
+                tsa.startFrame = new ParticleSystem.MinMaxCurve(0f, count);
             }
 
             // クラスター AABB を更新してパーティクル発生源を移動（再生は外部制御）
@@ -250,7 +391,8 @@ namespace ElfVillage.Tiles
                 if (_go != null) Object.Destroy(_go);
             }
 
-            private void Setup(Color tileColor, bool isWind)
+            private void Setup(Color tileColor, bool isWind,
+                                int atlasColumns, int atlasRows, int atlasCount, float textureTint)
             {
                 _ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
 
@@ -264,10 +406,19 @@ namespace ElfVillage.Tiles
                 main.startSpeed      = new ParticleSystem.MinMaxCurve(0f);  // shape 方向を無効化
                 main.startSize       = new ParticleSystem.MinMaxCurve(0.08f, 0.22f);
                 main.startRotation   = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
-                main.startColor      = LeafColorGradient(tileColor);
+
+                // ★葉の絵柄を使う場合、色は「掛け算」で効くため強く染めると絵柄が潰れる。
+                //   絵柄がないとき（アトラス未生成）は従来どおりの森の色をそのまま使う。
+                bool hasSprites = atlasCount > 0;
+                main.startColor = hasSprites
+                    ? TintForTexturedLeaf(LeafColorGradient(tileColor), textureTint)
+                    : LeafColorGradient(tileColor);
                 // 穏やかは velocityOverLifetime で下方向を明示するので重力は 0
                 main.gravityModifier = new ParticleSystem.MinMaxCurve(isWind ? 0.07f : 0f);
                 main.simulationSpace = ParticleSystemSimulationSpace.World;
+
+                // 粒ごとにアトラスから1枚を選ばせる（絵柄が無ければ何もしない）
+                SetupLeafSprites(atlasColumns, atlasRows, atlasCount);
 
                 var em = _ps.emission;
                 em.rateOverTime = isWind ? 16f : 3f;
@@ -360,6 +511,22 @@ namespace ElfVillage.Tiles
         // ネストクラスは外側クラスのprivateメンバーにもアクセスできるため、
         // Setup()側の呼び出しは無修正のまま動作する。EditModeテストから直接
         // 検証できるようにするためだけにここへ配置している（挙動・計算式は変更なし）。
+        /// <summary>
+        /// 葉の絵柄を使うときの色。パーティクルの色はテクスチャへ掛け算されるため、
+        /// 森の色をそのまま使うと絵柄の陰影や葉脈が沈んでしまう。
+        /// tint=0で絵の色そのまま、tint=1で従来どおり森の色になるよう白へ寄せる。
+        /// 純粋関数（副作用なし）なのでEditModeから直接検証できる。
+        /// </summary>
+        public static ParticleSystem.MinMaxGradient TintForTexturedLeaf(
+            ParticleSystem.MinMaxGradient source, float tint)
+        {
+            float t = float.IsFinite(tint) ? Mathf.Clamp01(tint) : 0f;
+
+            return new ParticleSystem.MinMaxGradient(
+                Color.Lerp(Color.white, source.colorMin, t),
+                Color.Lerp(Color.white, source.colorMax, t));
+        }
+
         public static ParticleSystem.MinMaxGradient LeafColorGradient(Color baseColor)
         {
             // 目立ちすぎないよう、鮮やかな黄緑（0.75,0.95,0.20等）への寄せ幅を抑え、
