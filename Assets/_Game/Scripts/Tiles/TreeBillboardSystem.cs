@@ -1,4 +1,4 @@
-// 役割: 森タイルの木を「常にカメラを向く板（ビルボード）」として描く実験的な差し替え。
+// 役割: 森タイルの木を「常にカメラを向く板（ビルボード）」として描く。
 //       プリミティブ（円柱＋球）で組んでいた木の代わりに、
 //       絵として描かれた木のテクスチャを1枚の板に貼って立てる。
 //
@@ -6,14 +6,33 @@
 //         絵にはすでに立体感・陰影・枝葉が描き込まれている。3Dで作り込むより、
 //         絵をそのまま立てた方が密度が出るうえ、1本あたりの頂点数が激減する。
 //
-//       ★根元の円錐
-//         板だけだと地面との接地が「紙が刺さっている」ように見える。
-//         幹の付け根に小さな円錐を置くと、板と地面の継ぎ目が隠れて立体感が出る。
+//       ★向きの決め方（木ごとにカメラ位置へ水平正対）
+//         板1枚ずつ「その木からカメラ位置へ向かう方向」を向く。上下には傾けない
+//         （見下ろしたときに木が地面へ寝てしまうため）。
 //
-//       ★回転の扱い
-//         Y軸まわりだけ回してカメラを向く。上下にも向けると木が寝てしまうため。
-//         木ごとにUpdateを持たせると本数ぶんの呼び出しが発生するので、
-//         このシステムが全ての板をまとめて1回のLateUpdateで回す。
+//         ここを「全ての板をカメラのYawで揃える」方式に変えると更新判定は単純になるが、
+//         このゲームのカメラはPerspective（FOV60・見下ろし40度）なので、
+//         画面端の木ほど正対からずれ、実測で最大約67度・見かけ幅39%まで潰れてしまう。
+//         森が画面端で痩せて見えるため、正対方式を維持する。
+//
+//       ★更新コスト
+//         木ごとにUpdateを持たせず、このシステムが全ての板をまとめて回す。
+//         さらに「カメラのTransformが動いたフレーム」だけ回す。
+//         正対方式では、カメラが平行移動しても各木の正しい向きが変わるため、
+//         回転だけでなく位置の変化も見る必要がある。
+//         逆に言えば、眺めているだけのとき（このゲームで最も多い状態）は
+//         カメラが1ミリも動かないので、毎フレーム処理は完全にゼロになる。
+//
+//       ★将来の性能課題（未着手・記録のみ）
+//         ここで抑えられているのは「回転更新のCPUコスト」だけで、描画側は手つかず。
+//         Forest 100枚（木2400本）で drawCalls 3605 / batches 3427 を実測している
+//         （2026-07-26 時点。木陰100枚ぶんは drawCalls +72 / setPass +7）。
+//         板1枚ごとにRendererを持ち、絵柄ごとにMaterialが分かれているためで、
+//         描画が問題になった時点で次の順に検討する:
+//           1. 木画像10種のAtlas化    2. Material数の統合
+//           3. GPU Instancing / Shader側でのBillboard化
+//           4. それでも足りなければLOD
+//         「回転更新が軽い＝森の描画が軽い」ではない点に注意。
 
 using System.Collections.Generic;
 using UnityEngine;
@@ -40,6 +59,18 @@ namespace ElfVillage.Tiles
         [Range(0f, 0.2f)]
         [SerializeField] private float _groundSinkRatio = 0.055f;
 
+        [Header("更新")]
+        [Tooltip("カメラのYawがこの角度以上変わったら全ての板の向きを更新する。\n" +
+                  "小さすぎると毎フレーム更新になり、大きすぎるとゆっくり回したときに角度が階段状に見える。")]
+        [Range(0.01f, 1f)]
+        [SerializeField] private float _yawUpdateThresholdDeg = 0.05f;
+
+        [Tooltip("カメラがこの距離以上動いたら全ての板の向きを更新する。\n" +
+                  "★木ごとにカメラへ正対させるため、カメラが平行移動しただけでも正しい向きは変わる。\n" +
+                  "  近くの木ほど影響が大きいので、しきい値はごく小さくしておく。")]
+        [Range(0.001f, 0.5f)]
+        [SerializeField] private float _positionUpdateThreshold = 0.005f;
+
         /// <summary>
         /// 実配置・プレビュー双方の生成経路（HexTileの静的メソッド）から参照できるようにする。
         /// ★Sceneに置かれていなければnullのままで、その場合は従来のプリミティブ木が使われる。
@@ -56,6 +87,19 @@ namespace ElfVillage.Tiles
         private int[] _weights;
 
         private Camera _camera;
+
+        // 最後に全体へ適用したときのカメラ状態（ここから動いていなければ更新を省く）。
+        private Vector3 _appliedCameraPosition;
+        private float   _appliedYaw;
+        private bool    _hasApplied;
+
+        // カメラが取れないまま木が登録された等、次のフレームで必ず適用し直したい状態。
+        private bool _needsFullApply;
+
+        // 破棄済み要素の掃除を「登録が一定数たまったとき」にまとめて行うためのカウンタ。
+        // 配置ゴーストは座標が変わるたびに作り直されるため、掃除しないとリストが伸び続ける。
+        private int _addedSinceCompact;
+        private const int CompactInterval = 128;
 
         public bool HasTextures => _materials != null && _materials.Length > 0;
 
@@ -88,7 +132,7 @@ namespace ElfVillage.Tiles
         // ── 生成 ──────────────────────────────────────────────────────
 
         /// <summary>
-        /// 木1本を板＋根元の円錐として生成する。
+        /// 木1本を板として生成する。
         /// 画像が未設定なら false を返し、呼び出し側は従来のプリミティブ木へ切り替える。
         /// </summary>
         /// <param name="parent">タイルのTransform</param>
@@ -109,7 +153,6 @@ namespace ElfVillage.Tiles
 
             var basePos = offset + new Vector3(0f, ground, 0f);
 
-            // ── 板 ────────────────────────────────────────────────
             var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
             quad.name = "TreeBillboard";
             quad.transform.SetParent(parent, false);
@@ -117,6 +160,7 @@ namespace ElfVillage.Tiles
             // Quadは中心原点なので、まず半分だけ持ち上げて下端を地面へ合わせる。
             // そのうえで、絵の下端にある透明な余白のぶんだけ沈めて、
             // 「描かれた木の根元」が地面へ接するようにする（浮いて見えるのを防ぐ）。
+            // ★沈み量は個体の高さhに比例させるので、大きい木も小さい木も同じ割合で接地する。
             float sink = Mathf.Clamp(_groundSinkRatio, 0f, 0.2f) * h;
             quad.transform.localPosition = basePos + new Vector3(0f, h * 0.5f - sink, 0f);
             quad.transform.localScale    = new Vector3(w, h, 1f);
@@ -131,12 +175,27 @@ namespace ElfVillage.Tiles
                 quadRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             }
 
-            _billboards.Add(quad.transform);
+            Register(quad.transform);
             return true;
         }
 
         /// <summary>個体ごとの大きさのばらつき（0.85〜1.15倍）。</summary>
         private static float SizeMultiplier(int seed) => 0.85f + (Mathf.Abs(seed) % 31) / 100f;
+
+        private void Register(Transform billboard)
+        {
+            _billboards.Add(billboard);
+
+            // ★生まれた瞬間に正しい向きにする。
+            //   カメラが止まっていると次のLateUpdateは丸ごと省かれるため、
+            //   ここで向けておかないと、置いたばかりの木だけ横を向いたままになる。
+            var cam = ResolveCamera();
+            if (cam != null) FaceCamera(billboard, cam.transform.position);
+            else             _needsFullApply = true;   // カメラが無いので次に取れたフレームで直す
+
+            _addedSinceCompact++;
+            if (_addedSinceCompact >= CompactInterval) Compact();
+        }
 
         // ── ビルボードの向き ──────────────────────────────────────────
 
@@ -144,23 +203,55 @@ namespace ElfVillage.Tiles
         {
             if (_billboards.Count == 0) return;
 
+            var cam = ResolveCamera();
+            if (cam == null)
+            {
+                // カメラが一時的に取れない（シーン遷移など）。例外は出さず、
+                // 戻ってきたフレームで必ず全体へ適用し直す。
+                _needsFullApply = true;
+                return;
+            }
+
+            var   camPos = cam.transform.position;
+            float yaw    = cam.transform.eulerAngles.y;
+
+            float posThreshold = Mathf.Max(0.001f, _positionUpdateThreshold);
+            bool cameraMoved = !_hasApplied
+                            || Mathf.Abs(Mathf.DeltaAngle(_appliedYaw, yaw)) >= Mathf.Max(0.01f, _yawUpdateThresholdDeg)
+                            || (camPos - _appliedCameraPosition).sqrMagnitude >= posThreshold * posThreshold;
+
+            // ★カメラが止まっているフレームは、ここで完全に打ち切る（毎フレーム処理ゼロ）。
+            if (!cameraMoved && !_needsFullApply) return;
+
+            ApplyAll(camPos, yaw);
+        }
+
+        private Camera ResolveCamera()
+        {
             if (_camera == null) _camera = Camera.main;
-            if (_camera == null) return;
+            return _camera;
+        }
 
-            Vector3 camPos = _camera.transform.position;
-
-            // 破棄済みの板を詰めながら、まとめて向きを更新する。
+        /// <summary>登録済みの全ての板へ向きを適用し、ついでに破棄済み要素を詰める。</summary>
+        private void ApplyAll(Vector3 cameraPosition, float yawDeg)
+        {
             int write = 0;
             for (int i = 0; i < _billboards.Count; i++)
             {
                 var t = _billboards[i];
                 if (t == null) continue;          // タイルごと破棄された
 
-                FaceCamera(t, camPos);
+                FaceCamera(t, cameraPosition);
                 _billboards[write++] = t;
             }
             if (write < _billboards.Count)
                 _billboards.RemoveRange(write, _billboards.Count - write);
+
+            _addedSinceCompact     = 0;
+            _appliedCameraPosition = cameraPosition;
+            _appliedYaw            = yawDeg;
+            _hasApplied            = true;
+            _needsFullApply        = false;
         }
 
         /// <summary>
@@ -174,6 +265,22 @@ namespace ElfVillage.Tiles
             if (dir.sqrMagnitude < 0.000001f) return;   // 真上/真下からは向きを決められない
 
             billboard.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up);
+        }
+
+        /// <summary>破棄済み要素だけを詰める（向きは変えない）。</summary>
+        private void Compact()
+        {
+            int write = 0;
+            for (int i = 0; i < _billboards.Count; i++)
+            {
+                var t = _billboards[i];
+                if (t == null) continue;
+                _billboards[write++] = t;
+            }
+            if (write < _billboards.Count)
+                _billboards.RemoveRange(write, _billboards.Count - write);
+
+            _addedSinceCompact = 0;
         }
 
         // ── ランタイム生成のリソース ──────────────────────────────────
