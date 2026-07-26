@@ -888,6 +888,13 @@ namespace ElfVillage.Tiles
         internal static void SpawnPrimitiveTreeVariant(Transform parent, Vector3 offset, float ground,
                                                         int variantIndex, int seed)
         {
+            // ★ビルボードの木への差し替え（実験）。
+            //   Sceneに TreeBillboardSystem が置かれ、木の画像が設定されているときだけ
+            //   絵の木に置き換わる。置かれていなければ何も変わらず、
+            //   下のプリミティブ（円柱＋球）がそのまま使われる。
+            var billboards = TreeBillboardSystem.Instance;
+            if (billboards != null && billboards.TrySpawnTree(parent, offset, ground, seed)) return;
+
             float sizeMul  = 0.85f + (seed % 31) / 100f;           // 0.85〜1.15
             float crownMul = 0.90f + (variantIndex % 5) * 0.05f;   // 0.90〜1.10
             float hue      = 0.28f + (variantIndex % 10) * 0.012f; // 葉の色相を少しずつずらす
