@@ -95,5 +95,33 @@ namespace ElfVillage.Tests
             Assert.AreEqual(16, WorldNoticeUI.SafeMaxQueued(999));
         }
 
+        // ══ 通知を出す段階の判定 ════════════════════════════════════════
+
+        [Test]
+        public void ShouldNotify_OnlyForBloom()
+        {
+            Assert.IsFalse(ElfVillage.Spirits.SpiritNoticePresenter.ShouldNotify(ElfVillage.Spirits.SpiritGrowthStage.Sprout));
+            Assert.IsFalse(ElfVillage.Spirits.SpiritNoticePresenter.ShouldNotify(ElfVillage.Spirits.SpiritGrowthStage.Fluff),
+                "Sprout→FluffはVFXと見た目の変化で伝える方針（通知は出さない）");
+            Assert.IsTrue(ElfVillage.Spirits.SpiritNoticePresenter.ShouldNotify(ElfVillage.Spirits.SpiritGrowthStage.Bloom));
+        }
+
+        [Test]
+        public void ShouldNotify_UnknownStage_IsHandledSafely()
+        {
+            Assert.IsFalse(ElfVillage.Spirits.SpiritNoticePresenter.ShouldNotify((ElfVillage.Spirits.SpiritGrowthStage)(-9)));
+            Assert.IsTrue(ElfVillage.Spirits.SpiritNoticePresenter.ShouldNotify((ElfVillage.Spirits.SpiritGrowthStage)999),
+                "Bloom超えはBloomへ丸められるので通知される");
+        }
+
+        [Test]
+        public void NoticeText_IsNotEmpty()
+        {
+            Assert.IsNotEmpty(ElfVillage.Spirits.SpiritNoticeText.BirthHeader);
+            Assert.IsNotEmpty(ElfVillage.Spirits.SpiritNoticeText.BirthBody);
+            Assert.IsNotEmpty(ElfVillage.Spirits.SpiritNoticeText.BloomHeader);
+            Assert.IsNotEmpty(ElfVillage.Spirits.SpiritNoticeText.BloomBody);
+            Assert.Greater(ElfVillage.Spirits.SpiritNoticeText.NoticeDuration, 0f);
+        }
     }
 }

@@ -152,6 +152,18 @@ namespace ElfVillage.Spirits
         // 毛玉の参照。BuildVisualで最大数ぶん確保し、以後は作り直さない（Stage 14）。
         private Transform[] _fluffTransforms;
 
+        // ── Visualスケールの合成（Stage 16） ──────────────────────────
+        //    ★_bodyRoot.localScaleへ複数の演出が直接書き込むと互いを潰し合う。
+        //      状態演出（Sleep/Stretch/Hop/成長flourish）の値はここに保持し、
+        //      誕生演出の倍率と掛け合わせた結果だけをTransformへ書く。
+        //        最終スケール = _stateVisualScale × 誕生倍率
+        //      成長段階の大きさ（毛玉の数・配置・サイズ）は_bodyRootではなく
+        //      各Fluffへ適用されているため、この合成の影響を受けず失われない。
+        private Vector3 _stateVisualScale = Vector3.one;
+
+        // 誕生・成長の見せ方。論理は持たず、見た目と音だけを担当する。
+        private ForestSpiritPresentation _presentation;
+
         // 毛玉のリング配置パラメータ（段階によらず共通。変わるのは個数とサイズだけ）。
         private const float FluffRingRadius = 0.075f;
         private const float FluffRingHeight = 0.028f;
@@ -191,10 +203,31 @@ namespace ElfVillage.Spirits
                 _memory.GetLifetimeExperience(), _growthThresholdFluff, _growthThresholdBloom);
             _pendingGrowthStage = _growthStage;
 
+            // ★Presentationの存在保証はここ（＝精霊自身）が持つ（Stage 16）。
+            //   Spawnerは「精霊を生成すること」だけに集中でき、
+            //   テストでForestSpiritを直接Initializeしても演出が欠落しない。
+            _presentation = GetComponent<ForestSpiritPresentation>();
+            if (_presentation == null) _presentation = gameObject.AddComponent<ForestSpiritPresentation>();
+
             BuildVisual();
             ApplyGrowthVisual(_growthStage);
 
             EnterState(SpiritState.Idle);
+        }
+
+        /// <summary>
+        /// 誕生演出を始める（生成直後にSpawnerから1回だけ呼ぶ）。
+        /// ★Initializeの中では始めない。
+        ///   Initializeは「精霊を組み立てる」処理であり、将来セーブから復元するときにも通る。
+        ///   復元された精霊に誕生演出が走ってしまうと「今生まれた」という嘘になるため、
+        ///   誕生は生成経路だけの関心事としてここへ分けている。
+        /// </summary>
+        internal void BeginBirthPresentation()
+        {
+            if (_presentation == null) return;
+
+            _presentation.BeginBirth();
+            ApplyComposedVisualScale();
         }
 
         private void SetHome(IReadOnlyList<HexTile> homeTiles, Vector3 center, float extentX, float extentZ)
@@ -422,13 +455,44 @@ namespace ElfVillage.Spirits
             transform.rotation = Quaternion.LookRotation(dir.normalized);
         }
 
-        /// <summary>Visualルートの回転・スケールを既定へ戻す（演出の残留を防ぐ単一のリセット地点）。</summary>
+        /// <summary>
+        /// Visualルートの回転・スケールを既定へ戻す（演出の残留を防ぐ単一のリセット地点）。
+        /// ★戻すのは「状態演出ぶん」だけ。誕生演出の倍率は合成側で維持されるため、
+        ///   誕生の途中でReactへ割り込まれても精霊が急に原寸へ弾けることはない。
+        /// </summary>
         private void ResetVisualPose()
         {
             if (_bodyRoot == null) return;
             _bodyRoot.localRotation = Quaternion.identity;
-            _bodyRoot.localScale    = Vector3.one;
             _bodyRoot.localPosition = Vector3.zero;
+
+            _stateVisualScale = Vector3.one;
+            ApplyComposedVisualScale();
+        }
+
+        /// <summary>
+        /// 状態演出のスケールを設定し、その場で合成して反映する。
+        /// ★記録だけにして反映をUpdate末尾へ任せると、Update以外から呼ばれた場合に
+        ///   1フレーム遅れる。設定と反映を必ず同時に行うことでその隙間をなくす。
+        /// </summary>
+        private void SetStateVisualScale(Vector3 scale)
+        {
+            _stateVisualScale = scale;
+            ApplyComposedVisualScale();
+        }
+
+        /// <summary>
+        /// 状態演出と誕生演出を掛け合わせてTransformへ書き込む唯一の地点。
+        /// 誕生倍率は演出中以外は必ず1なので、通常時は状態演出の値がそのまま出る。
+        /// </summary>
+        private void ApplyComposedVisualScale()
+        {
+            if (_bodyRoot == null) return;
+
+            float birth = _presentation != null ? _presentation.BirthScaleMultiplier : 1f;
+            if (!float.IsFinite(birth) || birth <= 0f) birth = 1f;
+
+            _bodyRoot.localScale = _stateVisualScale * birth;
         }
 
         // ── 実際に歩き回る範囲（Stage 13） ────────────────────────────
@@ -547,6 +611,14 @@ namespace ElfVillage.Spirits
                 }
             }
 
+            // 誕生演出は「実際にシミュレーションしたぶん」だけ進む。
+            // Settings中はUpdate自体がここへ到達しないため、演出も自動的に止まり、
+            // 解除後は停止地点から再開する（Stage 15の保証と同じ仕組みに乗せている）。
+            if (_presentation != null) _presentation.Advance(dt);
+
+            // 状態演出と誕生演出を掛け合わせてTransformへ書き込む唯一の地点。
+            ApplyComposedVisualScale();
+
             if (_stateElapsed >= _stateDuration)
                 EnterState(SpiritBehaviorMath.DecideNextState(
                     _state, Random.value,
@@ -586,7 +658,7 @@ namespace ElfVillage.Spirits
                 : 1f;
 
             // 一時変形はVisualルートのlocalScaleだけ。毛玉そのものには恒久的な倍率を残さない。
-            _bodyRoot.localScale = SpiritBehaviorMath.ComputeStretchScale(p, _growthFlourishIntensity);
+            SetStateVisualScale(SpiritBehaviorMath.ComputeStretchScale(p, _growthFlourishIntensity));
 
             // 伸びの折り返し地点で1段階だけ確定させ、同じ瞬間に綿毛を差し替える。
             // ★段階の確定と見た目の適用を同一フレームの同一地点で行うことで、
@@ -601,10 +673,12 @@ namespace ElfVillage.Spirits
                 ApplyGrowthVisual(_growthStage);
                 _growthAppliedThisFlourish = true;
 
-                // ★他システムへの通知はこの1点だけ（Stage 16）。
+                // ★演出・音・通知への通知はこの1点だけ（Stage 16）。
                 //   段階の確定と同じ地点・同じガードの内側なので、
                 //   Stage 14の「頂点前は未発火／頂点後は再発火しない／1段階1回」が
                 //   そのまま引き継がれ、二重発火の経路が生まれない。
+                if (_presentation != null) _presentation.PlayGrowth(_growthStage);
+
                 EventBus.Publish(new ForestSpiritGrowthCommittedEvent(
                     transform.position, previousStage, _growthStage, _personality));
             }
@@ -686,7 +760,7 @@ namespace ElfVillage.Spirits
         private void ApplySleepPose()
         {
             if (_bodyRoot == null) return;
-            _bodyRoot.localScale = Vector3.Lerp(_bodyRoot.localScale, Vector3.one * 0.82f, Time.deltaTime * 3f);
+            SetStateVisualScale(Vector3.Lerp(_stateVisualScale, Vector3.one * 0.82f, Time.deltaTime * 3f));
         }
 
         /// <summary>起床時の伸び。純粋関数の結果をVisualルートのスケールへそのまま反映する。</summary>
@@ -694,7 +768,7 @@ namespace ElfVillage.Spirits
         {
             if (_bodyRoot == null) return;
             float p = _stateDuration > 0f ? Mathf.Clamp01(_stateElapsed / _stateDuration) : 1f;
-            _bodyRoot.localScale = SpiritBehaviorMath.ComputeStretchScale(p, _stretchIntensity);
+            SetStateVisualScale(SpiritBehaviorMath.ComputeStretchScale(p, _stretchIntensity));
         }
 
         /// <summary>
@@ -734,7 +808,7 @@ namespace ElfVillage.Spirits
                 ? SpiritBehaviorMath.ComputeHopOffset(progress, MoveHopCount, hopHeight) / hopHeight
                 : 0f;
             float squash = _hopSquash * (1f - h);
-            _bodyRoot.localScale = new Vector3(1f + squash * 0.5f, 1f - squash, 1f + squash * 0.5f);
+            SetStateVisualScale(new Vector3(1f + squash * 0.5f, 1f - squash, 1f + squash * 0.5f));
         }
 
         /// <summary>

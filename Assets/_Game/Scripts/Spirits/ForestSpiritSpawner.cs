@@ -49,6 +49,15 @@ namespace ElfVillage.Spirits
         // 重複排除用の使い回しバッファ（イベントごとに確保しないため）。
         private readonly HashSet<HexTile> _uniqueTileBuffer = new();
 
+        private void Awake()
+        {
+            // ★誕生はタイル配置と同じフレームに起きる。
+            //   そのフレームで初めて Shader.Find が走るとフリーズすることが
+            //   WorldBreathSystem で確認されているため、Scene開始時に一度引いて
+            //   Unity側のシェーダーキャッシュを温めておく。
+            ForestSpiritPresentation.PrewarmShader();
+        }
+
         private void OnEnable()  => EventBus.Subscribe<TerrainGrowthEvent<ForestGrowthMetrics>>(OnForestGrow);
         private void OnDisable() => EventBus.Unsubscribe<TerrainGrowthEvent<ForestGrowthMetrics>>(OnForestGrow);
 
@@ -99,6 +108,9 @@ namespace ElfVillage.Spirits
             // Hierarchy上でどの子がどの性格か一目で分かるようにする
             // （精霊自身が確定させた値を読む。Initializeが未知enumをCalmへ倒した場合もそれが出る）。
             go.name = "ForestSpirit_" + _spirit.Personality;
+
+            // 誕生演出も通知と同じく「今生まれた」ときだけの処理なので、ここで1回だけ始める。
+            _spirit.BeginBirthPresentation();
 
             // ★誕生の通知はここ1回だけ（Stage 16）。
             //   生成は _spirit == null のときにしか通らず、以後は TryFollowForestGrowth へ分岐するため、
