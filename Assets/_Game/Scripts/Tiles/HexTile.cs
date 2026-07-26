@@ -357,6 +357,9 @@ namespace ElfVillage.Tiles
                 ComputeRegionAssignment(elements, isPositional, counts, positionalCount, totalPositional, type, perElementAssignment);
             }
 
+            // 木陰は木より先に敷く（Hierarchyの並びを揃えるためで、描画順はRenderQueueで決まる）。
+            TrySpawnTileShade(elements, Data.coord.q, Data.coord.r, tileHeight, _elementPropsRoot.transform);
+
             for (int i = 0; i < elements.Count; i++)
             {
                 var variant = elements[i].variant; // EffectiveElementsで既にnullでないことは保証済み
@@ -374,6 +377,25 @@ namespace ElfVillage.Tiles
                     Debug.LogWarning($"[HexTile] 要素「{variant.variantName}」のプロップ生成に失敗しました: {ex.Message}", this);
                 }
             }
+        }
+
+        /// <summary>
+        /// 木を持つタイルにだけ、タイル1枚ぶんの薄い木陰を1枚だけ敷く。
+        /// TileShadeSystemがSceneに無ければ何も起きない（従来どおり木陰なし）。
+        /// internal化: TilePropVisualBuilder（配置ゴースト）と同じ判定・同じ見た目にするため。
+        /// </summary>
+        internal static void TrySpawnTileShade(List<TileElement> elements, int coordQ, int coordR,
+                                                float tileHeight, Transform parent)
+        {
+            var shades = TileShadeSystem.Instance;
+            if (shades == null || parent == null) return;
+
+            bool hasTree = false;
+            foreach (var e in elements)
+                if (e.variant != null && e.variant.propType == TilePropType.Tree) { hasTree = true; break; }
+            if (!hasTree) return;
+
+            shades.TrySpawnShade(parent, coordQ, coordR, tileHeight);
         }
 
         // Tree/Flower要素が2つ以上ある場合に、正規化候補の生成→スコア算出→ソート→区間割当

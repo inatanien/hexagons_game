@@ -89,6 +89,10 @@ namespace ElfVillage.Tiles
             root.transform.localPosition = Vector3.zero;
             root.transform.localRotation = Quaternion.identity;
 
+            // 実配置と同じ判定・同じ見た目の木陰をゴーストにも敷く
+            // （置く前と置いた後で見た目が変わらないようにするため）。
+            HexTile.TrySpawnTileShade(elements, coord.q, coord.r, tileHeight, root.transform);
+
             for (int i = 0; i < elements.Count; i++)
             {
                 var variant = elements[i].variant;
