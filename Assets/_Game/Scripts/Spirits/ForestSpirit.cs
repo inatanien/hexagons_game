@@ -595,9 +595,18 @@ namespace ElfVillage.Spirits
             //   どちらでも半端な状態が残らない。
             if (!_growthAppliedThisFlourish && p >= 0.5f)
             {
+                var previousStage = _growthStage;
+
                 _growthStage = SpiritGrowthMath.ResolveGrowthTransition(_growthStage, _pendingGrowthStage);
                 ApplyGrowthVisual(_growthStage);
                 _growthAppliedThisFlourish = true;
+
+                // ★他システムへの通知はこの1点だけ（Stage 16）。
+                //   段階の確定と同じ地点・同じガードの内側なので、
+                //   Stage 14の「頂点前は未発火／頂点後は再発火しない／1段階1回」が
+                //   そのまま引き継がれ、二重発火の経路が生まれない。
+                EventBus.Publish(new ForestSpiritGrowthCommittedEvent(
+                    transform.position, previousStage, _growthStage, _personality));
             }
 
             if (p >= 1f)

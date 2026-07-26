@@ -99,6 +99,13 @@ namespace ElfVillage.Spirits
             // Hierarchy上でどの子がどの性格か一目で分かるようにする
             // （精霊自身が確定させた値を読む。Initializeが未知enumをCalmへ倒した場合もそれが出る）。
             go.name = "ForestSpirit_" + _spirit.Personality;
+
+            // ★誕生の通知はここ1回だけ（Stage 16）。
+            //   生成は _spirit == null のときにしか通らず、以後は TryFollowForestGrowth へ分岐するため、
+            //   森が何枚育っても誕生イベントが再発行されることはない。
+            //   Initializeが済んだ後に発行するので、購読側は確定済みの性格と段階を受け取れる。
+            EventBus.Publish(new ForestSpiritSpawnedEvent(
+                _spirit.transform.position, _spirit.Personality, _spirit.GrowthStage));
         }
 
         /// <summary>
