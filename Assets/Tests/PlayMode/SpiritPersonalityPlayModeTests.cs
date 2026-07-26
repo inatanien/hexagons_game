@@ -112,8 +112,14 @@ namespace ElfVillage.Tests
         {
             var memory   = spirit.GetType().GetField("_memory", Priv).GetValue(spirit);
             var halfLife = (float)spirit.GetType().GetField("_familiarityHalfLife", Priv).GetValue(spirit);
+
+            // ★Stage 15以降、記憶の時刻基準は精霊の個体時計（Settings中は止まる）。
+            //   Time.timeで問い合わせると、セッション経過ぶんだけ余計に減衰した値が返る。
+            //   個体時計はproductionで公開する用途が無いためprivateのままで、ここから観測する。
+            float simulationTime = (float)spirit.GetType().GetField("_simulationTime", Priv).GetValue(spirit);
+
             return (float)memory.GetType().GetMethod("GetFamiliarity")
-                .Invoke(memory, new object[] { kind, Time.time, halfLife });
+                .Invoke(memory, new object[] { kind, simulationTime, halfLife });
         }
 
         private static float StateDurationOf(ForestSpirit spirit)

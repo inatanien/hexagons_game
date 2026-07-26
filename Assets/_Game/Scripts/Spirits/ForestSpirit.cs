@@ -127,6 +127,13 @@ namespace ElfVillage.Spirits
 
         private float _swayPhase;
 
+        // ── 停止可能な個体時計（Stage 15） ────────────────────────────
+        //    Settings中はUpdateごと止まるため、この値も進まない。
+        //    Familiarityの減衰基準とIdleの揺れ位相はこちらを使い、Time.timeは使わない。
+        //    ★静的な共有時計にしないこと（誰が進めるのかが曖昧になり、
+        //      複数体になったとき時間が体数ぶん倍速で進む）。
+        private float _simulationTime;
+
         // 外部刺激への反応（Stage 11）
         private int                _currentPriority;   // React中の刺激の優先度（通常は0）
         private SpiritReactionKind _reactKind;         // React中に見せるリアクション
@@ -272,7 +279,10 @@ namespace ElfVillage.Spirits
             // 性格はこの2つの値だけを差し替える（純粋関数のシグネチャは変えない）。
             //   MinReactionScale … 見慣れきった後にどれだけ反応が残るか
             //   FamiliarityGain  … どれだけ早く慣れるか
-            float now      = Time.time;
+            // ★時刻はTime.timeではなく個体時計を使う（Stage 15）。
+            //   Settings中は_simulationTimeが進まないため、停止中に見慣れ度だけが
+            //   薄れていくような不整合が起きない。
+            float now      = _simulationTime;
             float familiar = _memory.GetFamiliarity(stimulus.Kind, now, _familiarityHalfLife);
             _reactScale    = SpiritBehaviorMath.ComputeReactionScale(
                                  familiar, _familiarityMaximum, _profile.MinReactionScale);
@@ -463,7 +473,20 @@ namespace ElfVillage.Spirits
 
         private void Update()
         {
+            // ★Settings中はここで完全に止まる（Stage 15）。
+            //   returnするだけなので、状態の経過・個体時計・React・成長演出・見た目が
+            //   すべてその場で凍結し、解除後は中断ではなく停止地点から自然に再開する。
+            //   PauseMenu中は既存のCritter群と同じく動き続ける。
+            //   ★以降のTime.deltaTime参照は、この早期returnを通過したときにしか到達しない。
+            if (!SpiritSimulationPolicy.ShouldSimulate(GameInteractionStateController.Current)) return;
+
             float dt = Time.deltaTime;
+
+            // 実際にシミュレーションしたぶんだけ進む個体時計。
+            // ★静的な共有時計にしないこと。共有にすると「誰が進めるのか」が曖昧になり、
+            //   複数体になったとき時間が体数ぶん倍速で進んでしまう。
+            _simulationTime += dt;
+
             _stateElapsed += dt;
 
             if (_isMoving)
@@ -502,7 +525,7 @@ namespace ElfVillage.Spirits
                         // その場で小さく上下に揺れる。
                         var idlePos = transform.position;
                         idlePos.y = GroundedY() + SpiritBehaviorMath.ComputeIdleSway(
-                            Time.time * _idleSwaySpeed, _swayPhase, _idleSwayAmplitude);
+                            _simulationTime * _idleSwaySpeed, _swayPhase, _idleSwayAmplitude);
                         transform.position = idlePos;
                         break;
 

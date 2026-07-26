@@ -86,6 +86,7 @@ namespace ElfVillage.Tests
             typeof(ForestSpiritSpawner).GetField("_personalityMode", Priv)
                 .SetValue(spawner, ForestSpiritSpawner.PersonalitySelectionMode.Fixed);
             typeof(ForestSpiritSpawner).GetField("_fixedPersonality", Priv).SetValue(spawner, kind);
+
             return spawner;
         }
 
@@ -116,6 +117,12 @@ namespace ElfVillage.Tests
                 if (f != null && f.gameObject.activeSelf) return f.localScale.x;
             return -1f;
         }
+
+        /// <summary>
+        /// 停止可能な個体時計。productionでは公開する用途が無いためprivateのままで、
+        /// 記憶の問い合わせ基準として観測のみ行う（テスト専用のpublic APIを足さない）。
+        /// </summary>
+        private static float SimulationTimeOf(ForestSpirit s) => (float)GetField(s, "_simulationTime");
 
         private static bool FlourishActive(ForestSpirit s)  => (bool)GetField(s, "_growthFlourishActive");
         private static bool FlourishApplied(ForestSpirit s) => (bool)GetField(s, "_growthAppliedThisFlourish");
@@ -483,7 +490,7 @@ namespace ElfVillage.Tests
             // ★Familiarityは実時間で減衰するため厳密一致では見ない。
             //   1回ぶん(0.6)を超えず、かつ薄れきってもいないことを確認する。
             //   一方、累積体験は減衰しないので厳密に1のままでなければならない。
-            float familiarity = memory.GetFamiliarity(SpiritStimulusKind.ForestGrew, Time.time, 60f);
+            float familiarity = memory.GetFamiliarity(SpiritStimulusKind.ForestGrew, SimulationTimeOf(spirit), 60f);
             Assert.Greater(familiarity, 0.4f,      $"生成時刺激が記憶されていない（{familiarity:F3}）");
             Assert.LessOrEqual(familiarity, 0.61f, $"1回ぶん(0.6)を超えて記憶された（{familiarity:F3}）");
             Assert.AreEqual(1f, memory.GetLifetimeExperience(), 0.0001f,
@@ -494,7 +501,7 @@ namespace ElfVillage.Tests
                 SpiritStimulusKind.FlowerBloomed, spirit.transform.position + new Vector3(60f, 0f, 60f), null)));
             yield return null;
 
-            Assert.AreEqual(0f, memory.GetFamiliarity(SpiritStimulusKind.FlowerBloomed, Time.time, 60f), 0.001f,
+            Assert.AreEqual(0f, memory.GetFamiliarity(SpiritStimulusKind.FlowerBloomed, SimulationTimeOf(spirit), 60f), 0.001f,
                 "遠方の刺激が受理された");
             Assert.AreEqual(1f, memory.GetLifetimeExperience(), 0.0001f,
                 "遠方の刺激で累積体験が増えた");
