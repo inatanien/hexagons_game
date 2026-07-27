@@ -199,7 +199,8 @@ namespace ElfVillage.Tiles
         private static void SpawnFlowerElement(TerrainVariantDefinition variant, int count, HexCoord coord,
             int elementIndex, int elementTotal, Vector3[] offsets, int[] seeds, Transform parent, float tileHeight)
         {
-            Vector3 yOffset = new Vector3(0f, tileHeight + 0.02f, 0f);
+            // 接地は実配置と同じ「メッシュの実際の上面 + プロップの下駄」を使う。
+            Vector3 yOffset = new Vector3(0f, HexMeshBuilder.TopY(tileHeight) + HexTile.PropLiftY, 0f);
 
             if (offsets != null && offsets.Length > 0)
             {

@@ -586,7 +586,7 @@ namespace ElfVillage.Tiles
                 float rNorm  = count > 1 ? Mathf.Sqrt((i + 0.5f) / count) : 0f;
                 float radius = Mathf.Max(0f, rNorm * FlowerMaxRadius + ((seed % 21) - 10) / 200f);
                 float angle  = (i * FlowerGoldenAngleDeg + (seed % 21) - 10f) * Mathf.Deg2Rad;
-                positions[i] = new Vector3(Mathf.Cos(angle) * radius, tileHeight + 0.02f, Mathf.Sin(angle) * radius);
+                positions[i] = new Vector3(Mathf.Cos(angle) * radius, HexMeshBuilder.TopY(tileHeight) + PropLiftY, Mathf.Sin(angle) * radius);
                 seeds[i]     = seed;
             }
             SpawnFlowerBillboards(parent, type.billboardSprite, positions, seeds);
@@ -980,7 +980,7 @@ namespace ElfVillage.Tiles
                 float rNorm  = count > 1 ? Mathf.Sqrt((i + 0.5f) / count) : 0f;
                 float radius = Mathf.Max(0f, rNorm * FlowerMaxRadius + ((seed % 21) - 10) / 200f);
                 float angle  = (i * FlowerGoldenAngleDeg + baseRotation + (seed % 21) - 10f) * Mathf.Deg2Rad;
-                positions[i] = new Vector3(Mathf.Cos(angle) * radius, tileHeight + 0.02f, Mathf.Sin(angle) * radius);
+                positions[i] = new Vector3(Mathf.Cos(angle) * radius, HexMeshBuilder.TopY(tileHeight) + PropLiftY, Mathf.Sin(angle) * radius);
                 seeds[i]     = seed;
             }
             SpawnFlowerBillboards(parent, type.billboardSprite, positions, seeds);
@@ -1002,7 +1002,7 @@ namespace ElfVillage.Tiles
                 var precomputedSeeds     = new int[precomputed.Length];
                 for (int i = 0; i < precomputed.Length; i++)
                 {
-                    precomputedPositions[i] = precomputed[i].LocalOffset + new Vector3(0f, tileHeight + 0.02f, 0f);
+                    precomputedPositions[i] = precomputed[i].LocalOffset + new Vector3(0f, HexMeshBuilder.TopY(tileHeight) + PropLiftY, 0f);
                     precomputedSeeds[i]     = precomputed[i].Seed;
                 }
                 SpawnFlowerBillboards(parent, variant.billboardSprite, precomputedPositions, precomputedSeeds);
@@ -1018,7 +1018,7 @@ namespace ElfVillage.Tiles
             {
                 int seed = Data.coord.q * 31 + Data.coord.r * 17 + i * 7 + Mathf.RoundToInt(angleOffsetDeg) * 13;
                 positions[i] = ComputeSpiralOffset(i, count, seed, FlowerGoldenAngleDeg, FlowerMaxRadius, baseRotation)
-                               + new Vector3(0f, tileHeight + 0.02f, 0f);
+                               + new Vector3(0f, HexMeshBuilder.TopY(tileHeight) + PropLiftY, 0f);
                 seeds[i] = seed;
             }
             SpawnFlowerBillboards(parent, variant.billboardSprite, positions, seeds);
