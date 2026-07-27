@@ -961,7 +961,12 @@ namespace ElfVillage.Tiles
         // 黄金角スパイラル（Vogel法）でタイル内に花をまんべんなく散らす（木と同じ考え方）。
         // internal化（Session 11）: TilePropVisualBuilderからも同じ半径・角度定数を参照するため。
         internal const float FlowerGoldenAngleDeg = 137.50776f;
-        internal const float FlowerMaxRadius      = 1.5f; // 花は木より footprint が小さいのでより外側まで使う
+        // タイルの端まで花を咲かせる（木と同じ考え方）。
+        // ★六角形の寸法（outerRadius=2.0）: 角までが2.0、辺の中点までが約1.73。
+        //   1.70は「辺の中点とほぼ同じ距離」。花の板は0.40〜0.60と小さいので
+        //   隣タイルへのはみ出しは木より少なく、境界の緑の帯だけが消える。
+        //   （以前の1.50では、タイルごとに花の無い縁が見えていた）
+        internal const float FlowerMaxRadius      = 1.7f;
 
         // 花畑タイルはピクミンブルーム方式: 地面テクスチャ（TileType.groundTexture）に
         // 花畑の密な模様を描いておき、その上に Billboard を propCount 枚だけ「点在」させて
@@ -1062,8 +1067,39 @@ namespace ElfVillage.Tiles
             // 実際に向いているカメラの角度がずれた際に板が真横を向き、
             // 縦に伸びた棘のような表示になる不具合があった。
             renderer.renderMode = ParticleSystemRenderMode.HorizontalBillboard;
-            var mat = GetBillboardMaterial(billboardSprite);
-            if (mat != null) renderer.material = mat;
+
+            // ★絵柄の出どころ
+            //   variant側でスプライトが明示されていればそれを最優先する（従来の上書き手段）。
+            //   指定が無ければ FlowerBillboardSystem のアトラス（複数絵柄）を使う。
+            //   Sceneにそのコンポーネントが無ければ従来どおり単一の仮スプライトになる。
+            var flowers    = FlowerBillboardSystem.Instance;
+            bool useAtlas  = billboardSprite == null && flowers != null && flowers.IsReady;
+            int  shapeCount = useAtlas ? flowers.ShapeCount : 0;
+
+            var mat = useAtlas ? flowers.SharedMaterial : GetBillboardMaterial(billboardSprite);
+            if (mat != null) renderer.sharedMaterial = mat;
+
+            // 粒ごとに別のコマ（＝別の花）を出す。
+            // ★startFrameをEmitのたびに書き換える方法は使えない。TSAはEmit時ではなく
+            //   シミュレーション更新時にモジュール値を読むため、同一フレーム内に撒いた粒が
+            //   全部「最後に設定したコマ」になる（実測確認済み）。
+            //   代わりに範囲抽選にしておき、粒ごとの乱数種を座標から決定論的に与える。
+            var tsa = ps.textureSheetAnimation;
+            if (shapeCount > 1)
+            {
+                tsa.enabled       = true;
+                tsa.mode          = ParticleSystemAnimationMode.Grid;
+                tsa.numTilesX     = shapeCount;
+                tsa.numTilesY     = 1;
+                tsa.animation     = ParticleSystemAnimationType.WholeSheet;
+                tsa.timeMode      = ParticleSystemAnimationTimeMode.Lifetime;
+                tsa.frameOverTime = new ParticleSystem.MinMaxCurve(0f);                 // 咲いたら絵柄は変わらない
+                tsa.startFrame    = new ParticleSystem.MinMaxCurve(0f, shapeCount);      // コマ番号で抽選
+            }
+            else
+            {
+                tsa.enabled = false;   // 絵柄が1つなら格子で切る必要がない
+            }
 
             // 再生状態にしてから Emit する（Stop直後にEmitすると再生開始時にクリアされることがある）
             ps.Play();
@@ -1078,6 +1114,9 @@ namespace ElfVillage.Tiles
                     rotation      = seed % 360,
                     startLifetime = 100000f,
                 };
+                // 座標から決めた種を渡すことで、同じタイルなら常に同じ花畑になる
+                // （配置ゴーストと実配置も同じseed列を通るので一致する）。
+                if (shapeCount > 1) ep.randomSeed = FlowerBillboardSystem.ParticleSeed(seed);
                 ps.Emit(ep, 1);
             }
         }
