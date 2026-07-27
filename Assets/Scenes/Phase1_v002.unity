@@ -3372,6 +3372,29 @@ MonoBehaviour:
   _boostStartSize: 7
   _boostMaxSize: 25
   _boostMaxMultiplier: 4
+  _petalTextures:
+  - {fileID: 2800000, guid: 3356277788e49d342bee36c486c92f1f, type: 3}
+  - {fileID: 2800000, guid: 66b605afb25bad944b2bd0d7eaaa5c03, type: 3}
+  - {fileID: 2800000, guid: 1c1c63e93484af845b7cb99b8124da22, type: 3}
+  - {fileID: 2800000, guid: f87bd67a46abe194092ae4fbd1e6f819, type: 3}
+  - {fileID: 2800000, guid: 66647bd6746918a408b419d7c05f5200, type: 3}
+  - {fileID: 2800000, guid: 1ffe69e873ef4be449e2bbd6d9bbdc23, type: 3}
+  - {fileID: 2800000, guid: bbb30ce7ab0351440a0b68186d060b93, type: 3}
+  - {fileID: 2800000, guid: 9ff574a609064fc43b5e2eafa5d9550d, type: 3}
+  - {fileID: 2800000, guid: a30c3da4a496bad4d93d9fc5fe6ba52c, type: 3}
+  - {fileID: 2800000, guid: cfe902655a6fb964cb21dedb0ba19880, type: 3}
+  - {fileID: 2800000, guid: d4a9b5b6049880644b515acfe2759370, type: 3}
+  - {fileID: 2800000, guid: 8a8783b1963af7842b588c9617f2e492, type: 3}
+  - {fileID: 2800000, guid: 11b17ffd83ef85d4fb0b52f82317e78f, type: 3}
+  - {fileID: 2800000, guid: b237de3661a0fb44fab29a4da11f64cc, type: 3}
+  - {fileID: 2800000, guid: 4f7ae2051dda18b41ad6f07574a42059, type: 3}
+  - {fileID: 2800000, guid: d0713ec8342c6b34fb8cbb23eee7a9d3, type: 3}
+  - {fileID: 2800000, guid: 0b090de7e1ee3db49afa4f6815d9bd45, type: 3}
+  - {fileID: 2800000, guid: 5ccfc8d7dc0d3c2428724563bf2d7d47, type: 3}
+  - {fileID: 2800000, guid: 6c6bf3f9f43a9d448905b130fc5308f2, type: 3}
+  - {fileID: 2800000, guid: 7422845dde0f9ee4aa1c4bc8000837e2, type: 3}
+  - {fileID: 2800000, guid: d5f8adebf9fc38c48989118f1727bdb5, type: 3}
+  _petalTextureTint: 0.15
 --- !u!114 &577237023
 MonoBehaviour:
   m_ObjectHideFlags: 0
