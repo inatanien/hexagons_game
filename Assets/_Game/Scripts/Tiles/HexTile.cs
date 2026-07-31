@@ -573,7 +573,9 @@ namespace ElfVillage.Tiles
         // internal化（Session 11）: TilePropVisualBuilderの複合要素House生成からも再利用するため。
         internal static void SpawnHouseStatic(Transform parent, float tileHeight)
         {
-            float ground = tileHeight + 0.01f;
+            // ★実配置(SpawnHouse)と同じ式にすること。
+            //   ここがずれると、置く前のゴーストと置いた後の家の高さが食い違う。
+            float ground = HexMeshBuilder.TopY(tileHeight) + PropLiftY;
 
             var body = GameObject.CreatePrimitive(PrimitiveType.Cube);
             body.transform.SetParent(parent);
@@ -642,7 +644,10 @@ namespace ElfVillage.Tiles
                                                     float outerRadius, float tileHeight)
         {
             float bankOffset = outerRadius * 0.25f;
-            float y          = tileHeight + 0.01f;
+            // ★川岸は「溝の縁＝陸地の高さ」に置く。水面（溝底）とは別のルール。
+            //   実配置(CreateWaterFlow)と同じ式にすること。
+            //   ここが `tileHeight + 0.01` のままだと、ゴーストの岸だけ0.15浮く。
+            float y          = HexMeshBuilder.TopY(tileHeight) + PropLiftY;
 
             bool    isStraight = ((edgeA + edgeB) * 0.5f).sqrMagnitude < 0.01f;
             Vector3 ctrl       = isStraight ? (edgeA + edgeB) * 0.5f : Vector3.zero;
@@ -1221,7 +1226,9 @@ namespace ElfVillage.Tiles
 
         private void SpawnHouse(Transform parent)
         {
-            float ground = tileHeight + 0.01f;
+            // ★接地はメッシュの実際の上面を基準にする（木・花と同じ規則）。
+            //   長らく `tileHeight + 0.01` を地面として使っており、家が0.15浮いていた。
+            float ground = HexMeshBuilder.TopY(tileHeight) + PropLiftY;
 
             var body = GameObject.CreatePrimitive(PrimitiveType.Cube);
             body.transform.SetParent(parent);
@@ -1293,7 +1300,10 @@ namespace ElfVillage.Tiles
         {
             float riverWidth = outerRadius * 0.5f;
             float bankOffset = riverWidth * 0.5f;
-            float y          = tileHeight * 0.5f + 0.01f;
+            // ★川岸は「溝の縁＝陸地の高さ」。水面（溝底・CenterlineHeight）とは別のルール。
+            //   値は従来と同じ（tileHeight*0.5 + 0.01）だが、他の接地と同じ式で書いて
+            //   「同じ規則である」ことをコード上でも一致させておく。
+            float y          = HexMeshBuilder.TopY(tileHeight) + PropLiftY;
 
             // 2辺の中点がタイル中心に近い = 対向辺 = 直線。それ以外はタイル中心を制御点とするベジェ曲線
             bool    isStraight = ((edgeA + edgeB) * 0.5f).sqrMagnitude < 0.01f;
