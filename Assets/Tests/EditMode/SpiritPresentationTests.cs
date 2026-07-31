@@ -186,7 +186,8 @@ namespace ElfVillage.Tests
             var p = MakePresentation();
             try
             {
-                typeof(ForestSpiritPresentation).GetMethod("BeginBirth", Priv).Invoke(p, null);
+                typeof(ForestSpiritPresentation).GetMethod("BeginBirth", Priv)
+                    .Invoke(p, new object[] { Vector3.zero });   // 誕生位置（この検証では使わない）
                 Assert.IsTrue(p.IsPlayingBirth);
                 Assert.Less(p.BirthScaleMultiplier, 1f, "開始直後は小さいはず");
 
@@ -205,7 +206,8 @@ namespace ElfVillage.Tests
             var p = MakePresentation();
             try
             {
-                typeof(ForestSpiritPresentation).GetMethod("BeginBirth", Priv).Invoke(p, null);
+                typeof(ForestSpiritPresentation).GetMethod("BeginBirth", Priv)
+                    .Invoke(p, new object[] { Vector3.zero });   // 誕生位置（この検証では使わない）
                 float before = p.BirthScaleMultiplier;
 
                 var advance = typeof(ForestSpiritPresentation).GetMethod("Advance", Priv);

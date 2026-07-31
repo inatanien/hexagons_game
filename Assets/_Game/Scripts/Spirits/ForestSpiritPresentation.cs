@@ -5,6 +5,14 @@
 //         誕生演出はVisual専用のトラックとして動く。行動状態は通常どおり進み、
 //         刺激も通常どおり受理される（Stage 11〜12の保証を変えない）。
 //
+//       ★誕生の目印について分かっている制約（将来の強化候補・未着手）
+//         地面の光の輪は、誕生位置の周りに木が密集していると billboard に隠れて
+//         弧の一部しか見えないことがある。誕生位置は定義上「森4枚以上のクラスタ中心」なので、
+//         木が周囲にあるのは避けられない。
+//         現状は通知UI（WorldNoticeEvent）との組み合わせで目的を満たしているが、
+//         誕生演出を強化する段階では「上向きに舞う少数の光粒」のように、
+//         樹木に隠れても視認できる要素を輪へ足すことを検討すること。
+//
 //       ★時間の扱い（不整合を作らない設計）
 //         演出タイマーは自分では進めず、ForestSpirit.Update から Advance(dt) を
 //         呼んでもらう。ForestSpirit.Update は Settings 中に早期 return するため、
@@ -27,6 +35,15 @@ namespace ElfVillage.Spirits
         [Tooltip("生まれた瞬間の大きさ。0にすると法線が壊れて描画が乱れるため、必ず正の値にする")]
         [SerializeField] private float _birthStartScale = 0.15f;
 
+        [Header("誕生の目印（地面に広がって消える光の輪）")]
+        [Tooltip("輪が消えるまでの秒数。誕生演出より短いと、精霊が現れ切る前に目印が消える")]
+        [SerializeField] private float _markerDuration  = 1.8f;
+        [Tooltip("輪の初期サイズ")]
+        [SerializeField] private float _markerStartSize = 0.6f;
+        [Tooltip("輪の最大サイズ。タイルの辺中点（約1.73）より少し大きくすると" +
+                  "「このタイルのあたり」として読める")]
+        [SerializeField] private float _markerEndSize   = 2.4f;
+
         [Header("VFX")]
         [SerializeField] private Color _birthLightColor  = new Color(0.85f, 1f, 0.75f, 1f);
         [SerializeField] private Color _growthLightColor = new Color(0.80f, 1f, 0.70f, 1f);
@@ -42,12 +59,22 @@ namespace ElfVillage.Spirits
         // ── 誕生演出の進行 ────────────────────────────────────────────
         private bool  _birthPlaying;
         private float _birthElapsed;
+        // 誕生は一度きり。二重に呼ばれても演出をやり直さず、目印も増やさない。
+        private bool  _birthStarted;
 
         // ── VFX ───────────────────────────────────────────────────────
         private ParticleSystem _vfx;
         private Material       _vfxMaterial;
         private Texture2D      _vfxTexture;
         private bool           _particlesRunning = true;
+
+        // ── 誕生の目印 ────────────────────────────────────────────────
+        // ★精霊とは別のParticleSystemにする。
+        //   目印はワールド空間へ置き去りにする必要があり、
+        //   きらめきのバースト（_vfx）とは寿命も大きさも動きも別物のため。
+        private ParticleSystem _marker;
+        private Material       _markerMaterial;
+        private Texture2D      _markerTexture;
 
         private const int   MaxBurstParticles = 9;
         private const float VfxLifetimeMin    = 0.8f;
@@ -91,6 +118,37 @@ namespace ElfVillage.Spirits
             return Mathf.Lerp(s, 1f, eased) + overshoot;
         }
 
+        /// <summary>
+        /// 目印の輪の大きさ。進行0で開始サイズ、1で最大サイズ。
+        /// 「勢いよく広がってから緩やかに止まる」ため、水面の波紋のように見える。
+        /// 不正な値でも必ず正の大きさを返す（0スケールは描画が壊れるため）。
+        /// </summary>
+        public static float ComputeMarkerSize(float progress, float startSize, float endSize)
+        {
+            float p = Mathf.Clamp01(float.IsFinite(progress) ? progress : 1f);
+            float s = (float.IsFinite(startSize) && startSize > 0f) ? startSize : 0.1f;
+            float e = (float.IsFinite(endSize)   && endSize   > 0f) ? endSize   : s;
+
+            if (e < s) e = s;   // 逆転していても縮まないようにする
+
+            // 1 - (1-p)^2 で、序盤に大きく広がって終盤で緩む。
+            float eased = 1f - (1f - p) * (1f - p);
+            return Mathf.Lerp(s, e, eased);
+        }
+
+        /// <summary>
+        /// 目印の表示時間。
+        /// ★誕生演出より短くしない。短いと、精霊が現れ切る前に目印が消えてしまい、
+        ///   「どこで起きたのか」を確かめる時間が無くなる。
+        /// </summary>
+        public static float SafeMarkerDuration(float requested, float birthDuration)
+        {
+            float b = (float.IsFinite(birthDuration) && birthDuration > 0f) ? birthDuration : 0f;
+            float r = (float.IsFinite(requested)     && requested     > 0f) ? requested     : b;
+
+            return Mathf.Clamp(Mathf.Max(r, b), 0.1f, 10f);
+        }
+
         /// <summary>成長段階に応じた光の色。未知の段階は成長色へ安全に倒れる。</summary>
         public Color LightColorFor(SpiritGrowthStage stage)
             => SpiritGrowthMath.ClampStage(stage) == SpiritGrowthStage.Bloom ? _bloomLightColor : _growthLightColor;
@@ -101,13 +159,24 @@ namespace ElfVillage.Spirits
 
         // ── 演出の開始（ForestSpiritから呼ばれる） ────────────────────
 
-        /// <summary>誕生演出を始める。一度きりで、やり直しはしない。</summary>
-        internal void BeginBirth()
+        /// <summary>
+        /// 誕生演出を始める。一度きりで、やり直しはしない。
+        /// ★二度目以降の呼び出しは完全に無視する（演出のやり直しも、目印の重複も起こさない）。
+        /// </summary>
+        /// <param name="groundPosition">
+        /// 目印の光の輪を残す地面のワールド座標。
+        /// 精霊は空中に浮いているため、Spawner側で確定した地面の高さを受け取る。
+        /// </param>
+        internal void BeginBirth(Vector3 groundPosition)
         {
+            if (_birthStarted) return;
+            _birthStarted = true;
+
             _birthPlaying = true;
             _birthElapsed = 0f;
 
             PlayBurst(_birthLightColor, MaxBurstParticles);
+            PlayGroundMarker(groundPosition);
             PlaySe(_birthSe);
         }
 
@@ -152,10 +221,17 @@ namespace ElfVillage.Spirits
             if (shouldRun == _particlesRunning) return;
 
             _particlesRunning = shouldRun;
-            if (_vfx == null) return;
 
-            if (shouldRun) _vfx.Play(true);
-            else           _vfx.Pause(true);
+            // ★きらめきと目印の両方を止める。片方だけ動くと不整合が見える。
+            SetParticlesRunning(_vfx,    shouldRun);
+            SetParticlesRunning(_marker, shouldRun);
+        }
+
+        private static void SetParticlesRunning(ParticleSystem ps, bool run)
+        {
+            if (ps == null) return;
+            if (run) ps.Play(true);
+            else     ps.Pause(true);
         }
 
         // ── VFX本体 ───────────────────────────────────────────────────
@@ -195,6 +271,185 @@ namespace ElfVillage.Spirits
 
             // Emitは一度きりの短いバースト。Poolも常駐パーティクルも持たない。
             _vfx.Emit(Mathf.Clamp(count, 1, MaxBurstParticles));
+        }
+
+        // ── 誕生の目印（地面の光の輪） ────────────────────────────────
+
+        /// <summary>
+        /// 誕生位置へ光の輪を1つ置く。
+        /// ★simulationSpace = World なので、放出した瞬間からこの粒はワールド座標へ固定される。
+        ///   精霊がこのあと漂い始めても、輪は生まれた場所に残る（本Stageの核心）。
+        /// </summary>
+        private void PlayGroundMarker(Vector3 groundPosition)
+        {
+            if (!IsFinite(groundPosition)) return;
+
+            EnsureMarker();
+            if (_marker == null) return;
+
+            var main = _marker.main;
+            main.startColor = new ParticleSystem.MinMaxGradient(_birthLightColor);
+
+            _marker.Emit(new ParticleSystem.EmitParams
+            {
+                position      = groundPosition,   // World空間なのでワールド座標をそのまま渡す
+                velocity      = Vector3.zero,
+                startLifetime = SafeMarkerDuration(_markerDuration, _birthDuration),
+                // sizeOverLifetime はこの値へ掛かるので、ここには最大サイズを入れる
+                startSize     = ComputeMarkerSize(1f, _markerStartSize, _markerEndSize),
+                rotation      = 0f,
+            }, 1);
+        }
+
+        private static bool IsFinite(Vector3 v)
+            => float.IsFinite(v.x) && float.IsFinite(v.y) && float.IsFinite(v.z);
+
+        private void EnsureMarker()
+        {
+            // ★増殖防止。BeginBirthが二重に呼ばれてもParticleSystemは1つのまま。
+            if (_marker != null) return;
+
+            var go = new GameObject("SpiritBirthMarker");
+            go.transform.SetParent(transform, false);
+            go.transform.localPosition = Vector3.zero;
+
+            _marker = go.AddComponent<ParticleSystem>();
+
+            var main = _marker.main;
+            main.playOnAwake     = false;
+            main.loop            = false;
+            main.startSpeed      = new ParticleSystem.MinMaxCurve(0f);
+            main.gravityModifier = new ParticleSystem.MinMaxCurve(0f);
+            // ★これがあるから、精霊が動いても輪が誕生位置に残る。
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+            main.maxParticles    = 1;
+
+            // 自動発生はしない。誕生の瞬間に1粒だけEmitする。
+            var emission = _marker.emission;
+            emission.enabled = false;
+
+            var shape = _marker.shape;
+            shape.enabled = false;   // 位置はEmitParamsで直接指定する
+
+            // 広がる：小さく現れて最大まで開く
+            var sizeOverLifetime = _marker.sizeOverLifetime;
+            sizeOverLifetime.enabled = true;
+            sizeOverLifetime.size    = new ParticleSystem.MinMaxCurve(1f, MarkerSizeCurve());
+
+            // 消える：さっと現れてゆっくり薄くなる
+            var colorOverLifetime = _marker.colorOverLifetime;
+            colorOverLifetime.enabled = true;
+            colorOverLifetime.color   = MarkerFadeGradient();
+
+            var renderer = go.GetComponent<ParticleSystemRenderer>();
+            if (renderer != null)
+            {
+                // ★地面に寝かせる。見下ろし視点で輪として読ませるため、
+                //   カメラへ正対するBillboardではなくHorizontalBillboardを使う
+                //   （水・花の板と同じ方式）。
+                renderer.renderMode = ParticleSystemRenderMode.HorizontalBillboard;
+
+                _markerMaterial = BuildMarkerMaterial();
+                if (_markerMaterial != null) renderer.material = _markerMaterial;
+            }
+
+            _marker.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            _marker.Play(true);
+        }
+
+        /// <summary>広がり方のカーブ。ComputeMarkerSize と同じ形を最大値1.0で正規化したもの。</summary>
+        private AnimationCurve MarkerSizeCurve()
+        {
+            float max = ComputeMarkerSize(1f, _markerStartSize, _markerEndSize);
+            if (!float.IsFinite(max) || max <= 0f) max = 1f;
+
+            var curve = new AnimationCurve();
+            const int samples = 8;
+            for (int i = 0; i <= samples; i++)
+            {
+                float p = i / (float)samples;
+                curve.AddKey(p, ComputeMarkerSize(p, _markerStartSize, _markerEndSize) / max);
+            }
+            return curve;
+        }
+
+        private static ParticleSystem.MinMaxGradient MarkerFadeGradient()
+        {
+            var g = new Gradient();
+            g.SetKeys(
+                new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+                new[]
+                {
+                    new GradientAlphaKey(0f,    0f),
+                    new GradientAlphaKey(0.75f, 0.15f),   // さっと現れる
+                    new GradientAlphaKey(0f,    1f),      // ゆっくり消える
+                });
+            return new ParticleSystem.MinMaxGradient(g);
+        }
+
+        private Material BuildMarkerMaterial()
+        {
+            var shader = FindVfxShader();
+            if (shader == null) return null;
+
+            var mat = new Material(shader) { name = "SpiritBirthMarker_Runtime" };
+
+            _markerTexture = BuildRingTexture();
+            if (_markerTexture != null)
+            {
+                if (mat.HasProperty("_BaseMap")) mat.SetTexture("_BaseMap", _markerTexture);
+                if (mat.HasProperty("_MainTex")) mat.SetTexture("_MainTex", _markerTexture);
+                mat.mainTexture = _markerTexture;
+            }
+
+            ConfigureTransparency(mat);
+            return mat;
+        }
+
+        /// <summary>
+        /// 中空の輪。中心は透明で、縁だけが柔らかく光る。
+        /// ★塗り潰した円にすると地面の花や木を隠してしまう。輪郭だけを光らせて
+        ///   「ここで何かが起きた」とだけ伝える。
+        /// </summary>
+        private static Texture2D BuildRingTexture()
+        {
+            const int   size        = 64;
+            const float ringRadius  = 0.74f;   // 中心からの距離（0〜1）
+            const float ringWidth   = 0.20f;   // 輪の太さ（片側）
+
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false)
+            {
+                name       = "SpiritBirthMarker_Ring",
+                wrapMode   = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+            };
+
+            var pixels = new Color[size * size];
+            float center = (size - 1) * 0.5f;
+            float radius = center;
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dx = (x - center) / radius;
+                    float dy = (y - center) / radius;
+                    float d  = Mathf.Sqrt(dx * dx + dy * dy);
+
+                    // 輪の中心線からの距離が近いほど明るい
+                    float t     = Mathf.Clamp01(Mathf.Abs(d - ringRadius) / ringWidth);
+                    float alpha = 1f - t;
+                    alpha = alpha * alpha;                 // 縁を柔らかく
+
+                    if (d >= 1f) alpha = 0f;               // 四角い輪郭を出さない
+
+                    pixels[y * size + x] = new Color(1f, 1f, 1f, alpha);
+                }
+            }
+
+            tex.SetPixels(pixels);
+            tex.Apply(false, false);
+            return tex;
         }
 
         private void EnsureVfx()
@@ -363,8 +618,12 @@ namespace ElfVillage.Spirits
             // ランタイム生成したMaterialとTextureは自動では解放されないため明示的に破棄する。
             DestroyRuntimeAsset(_vfxMaterial);
             DestroyRuntimeAsset(_vfxTexture);
-            _vfxMaterial = null;
-            _vfxTexture  = null;
+            DestroyRuntimeAsset(_markerMaterial);
+            DestroyRuntimeAsset(_markerTexture);
+            _vfxMaterial    = null;
+            _vfxTexture     = null;
+            _markerMaterial = null;
+            _markerTexture  = null;
         }
 
         private static void DestroyRuntimeAsset(Object asset)

@@ -110,7 +110,11 @@ namespace ElfVillage.Spirits
             go.name = "ForestSpirit_" + _spirit.Personality;
 
             // 誕生演出も通知と同じく「今生まれた」ときだけの処理なので、ここで1回だけ始める。
-            _spirit.BeginBirthPresentation();
+            // ★地面の座標はここで確定させてPresentationへ渡す。
+            //   精霊は空中に浮いているため、精霊のYをそのまま使うと目印が宙に浮く。
+            //   Presentation側でタイルを探したりRaycastを撃ったりしないよう、
+            //   home森を知っているこの場所で計算し切る。
+            _spirit.BeginBirthPresentation(ComputeBirthGroundPosition(tiles, _spirit.transform.position));
 
             // ★誕生の通知はここ1回だけ（Stage 16）。
             //   生成は _spirit == null のときにしか通らず、以後は TryFollowForestGrowth へ分岐するため、
@@ -118,6 +122,42 @@ namespace ElfVillage.Spirits
             //   Initializeが済んだ後に発行するので、購読側は確定済みの性格と段階を受け取れる。
             EventBus.Publish(new ForestSpiritSpawnedEvent(
                 _spirit.transform.position, _spirit.Personality, _spirit.GrowthStage));
+        }
+
+        /// <summary>
+        /// 誕生の目印を置く地面のワールド座標。
+        /// XZは精霊が生まれた真下、Yはhome森のタイル上面に合わせる。
+        ///
+        /// ★高さは HexTile.GroundWorldPosition から取る。
+        ///   これは木・花と同じ `HexMeshBuilder.TopY(tileHeight) + PropLiftY` の式で、
+        ///   0.16のような絶対値をここで新しく作らないためにタイル側が配っている値。
+        ///
+        /// ★home森で最も高い上面を採用する（最大値）。
+        ///   タイルの列挙順に依存せず、かつ将来タイルごとに高さが変わっても
+        ///   輪が地面へ埋まらない側へ倒れる。
+        ///   有効なタイルが1枚も無い場合は精霊の足元をそのまま使う（安全な既定）。
+        /// </summary>
+        private static Vector3 ComputeBirthGroundPosition(IReadOnlyList<HexTile> tiles, Vector3 spiritPosition)
+        {
+            bool  found    = false;
+            float highestY = 0f;
+
+            if (tiles != null)
+            {
+                foreach (var tile in tiles)
+                {
+                    if (tile == null) continue;
+
+                    float y = tile.GroundWorldPosition.y;
+                    if (!float.IsFinite(y)) continue;
+
+                    if (!found || y > highestY) { highestY = y; found = true; }
+                }
+            }
+
+            return new Vector3(spiritPosition.x,
+                                found ? highestY : spiritPosition.y,
+                                spiritPosition.z);
         }
 
         /// <summary>

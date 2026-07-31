@@ -54,6 +54,21 @@ namespace ElfVillage.Tiles
         public float OuterRadius => outerRadius;
         public float TileHeight  => tileHeight;
 
+        /// <summary>
+        /// このタイルの地面（上面のすぐ上）のワールド座標。
+        ///
+        /// ★接地ルールをここ1箇所から配るための入口。
+        ///   木・花が使っている `HexMeshBuilder.TopY(tileHeight) + PropLiftY` と同じ式で、
+        ///   タイルの外（別アセンブリ）から接地高さが必要になったときに
+        ///   0.16のような絶対値を新しい情報源にしないためにある。
+        ///   PropLiftY は internal なので、外部へはこのプロパティ経由で渡す。
+        ///
+        /// ★配置アニメ中のスケールは反映しない。
+        ///   返すのは「落ち着いたときの地面の高さ」で、演出用の一時的な縮小は含めない。
+        /// </summary>
+        public Vector3 GroundWorldPosition
+            => transform.position + new Vector3(0f, HexMeshBuilder.TopY(tileHeight) + PropLiftY, 0f);
+
         private void Awake()
         {
             tileRenderer = meshRenderer;

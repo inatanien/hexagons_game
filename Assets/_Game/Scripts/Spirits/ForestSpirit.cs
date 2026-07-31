@@ -222,11 +222,19 @@ namespace ElfVillage.Spirits
         ///   復元された精霊に誕生演出が走ってしまうと「今生まれた」という嘘になるため、
         ///   誕生は生成経路だけの関心事としてここへ分けている。
         /// </summary>
-        internal void BeginBirthPresentation()
+        /// <summary>
+        /// 誕生演出を始める。
+        /// </summary>
+        /// <param name="birthGroundPosition">
+        /// 誕生の目印（地面の光の輪）を残すワールド座標。
+        /// ★精霊は空中に浮いているため、自分のtransform.positionは使えない。
+        ///   home森を知っているSpawner側で確定した地面の高さを受け取る。
+        /// </param>
+        internal void BeginBirthPresentation(Vector3 birthGroundPosition)
         {
             if (_presentation == null) return;
 
-            _presentation.BeginBirth();
+            _presentation.BeginBirth(birthGroundPosition);
             ApplyComposedVisualScale();
         }
 
