@@ -23,6 +23,12 @@
 //         逆に言えば、眺めているだけのとき（このゲームで最も多い状態）は
 //         カメラが1ミリも動かないので、毎フレーム処理は完全にゼロになる。
 //
+//       ★カメラ以外の理由で向きが狂う場合（RealignUnder）
+//         「カメラが動いたか」だけを見る作りなので、カメラが止まったまま板の親が回ると
+//         全体更新は省かれ、板が親の回転を継承したままになる。配置ゴーストがこれに当たる。
+//         その場合だけ、呼び出し側が RealignUnder(root) で該当の部分木を明示的に直す。
+//         毎フレーム親の回転を監視する方式は採らない（カメラ静止時の処理ゼロを失うため）。
+//
 //       ★将来の性能課題（未着手・記録のみ）
 //         ここで抑えられているのは「回転更新のCPUコスト」だけで、描画側は手つかず。
 //         Forest 100枚（木2400本）で drawCalls 3605 / batches 3427 を実測している
@@ -260,11 +266,72 @@ namespace ElfVillage.Tiles
         /// </summary>
         private static void FaceCamera(Transform billboard, Vector3 cameraPosition)
         {
-            Vector3 dir = billboard.position - cameraPosition;
-            dir.y = 0f;
-            if (dir.sqrMagnitude < 0.000001f) return;   // 真上/真下からは向きを決められない
+            if (TryComputeFacing(billboard.position, cameraPosition, out Quaternion rotation))
+                billboard.rotation = rotation;
+        }
 
-            billboard.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up);
+        /// <summary>
+        /// 板をカメラへ水平正対させる world rotation を求める。
+        ///
+        /// ★world rotation を絶対値で決めるので、板の親が何度回っていても結果は変わらない。
+        ///   逆に言えば、親を回した後に誰かがこれを適用し直さない限り、
+        ///   板は親の回転を継承したままズレ続ける（配置ゴーストで実際に起きていた）。
+        ///
+        /// 真上・真下からは水平方向が決まらないため false を返し、呼び出し側は向きを変えない。
+        /// </summary>
+        public static bool TryComputeFacing(Vector3 billboardPosition, Vector3 cameraPosition,
+                                             out Quaternion rotation)
+        {
+            Vector3 dir = billboardPosition - cameraPosition;
+            dir.y = 0f;
+            if (dir.sqrMagnitude < 0.000001f)
+            {
+                rotation = Quaternion.identity;
+                return false;
+            }
+
+            rotation = Quaternion.LookRotation(dir.normalized, Vector3.up);
+            return true;
+        }
+
+        /// <summary>
+        /// 指定した Transform 配下のビルボードだけを、いま一度カメラへ正対させる。
+        ///
+        /// ★なぜ必要か
+        ///   配置ゴーストは「カメラは止まったまま、親だけが 60 度ずつ回る」という
+        ///   このシステムが想定していない動き方をする。LateUpdate はカメラが動いたかしか
+        ///   見ないので全体更新は省かれ、親の回転を継承した板が横を向いたまま残る
+        ///   （実測: 誤差 最大 173.7 度、24本中24本が 75 度以上＝ほぼ板）。
+        ///
+        /// ★全体更新のしきい値（_appliedCameraPosition / _appliedYaw / _hasApplied）は
+        ///   意図的に触らない。ここで更新済みとして記録してしまうと、
+        ///   「カメラが動いたら全部直す」という判定を部分更新だけで満たしたことになり、
+        ///   root の外にある世界中の木が直らなくなる。
+        ///
+        /// ★破棄済み要素の詰め直しもここでは行わない。掃除は Compact / ApplyAll の責務のままにし、
+        ///   この関数は「向けるだけ」に保つ。
+        /// </summary>
+        public void RealignUnder(Transform root)
+        {
+            if (root == null || _billboards.Count == 0) return;
+
+            var cam = ResolveCamera();
+            if (cam == null)
+            {
+                // カメラが取れないので今は向けられない。取れたフレームで全体を直す。
+                _needsFullApply = true;
+                return;
+            }
+
+            Vector3 cameraPosition = cam.transform.position;
+            for (int i = 0; i < _billboards.Count; i++)
+            {
+                var t = _billboards[i];
+                if (t == null) continue;              // タイルごと破棄された（詰めるのはCompactの責務）
+                if (!t.IsChildOf(root)) continue;     // 指定された部分木の外は触らない
+
+                FaceCamera(t, cameraPosition);
+            }
         }
 
         /// <summary>破棄済み要素だけを詰める（向きは変えない）。</summary>

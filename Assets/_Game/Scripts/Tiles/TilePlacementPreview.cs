@@ -17,6 +17,9 @@ namespace ElfVillage.Tiles
         // Session 11: 複合要素タイル（TileType.HasVisualElements）のみ、座標が変わった際に
         // 再生成する。legacyタイルは座標に依存しない見た目のため対象外（不要な再生成を避ける）。
         private HexCoord      _lastCoord;
+        // 最後にゴーストへ適用した回転。回転が変わった瞬間だけビルボードを直すために持つ。
+        // 初期値-1は「まだ一度も表示していない」の意味（rotationは0〜5のため衝突しない）。
+        private int           _lastRotation = -1;
 
         // 同じ tileCategory の隣接タイルがある辺を示すグロー表示（6方向ぶん）
         private readonly GameObject[] _synergyEdgeGOs = new GameObject[6];
@@ -181,6 +184,7 @@ namespace ElfVillage.Tiles
             HexCoord hoveredCoord  = hoveredTile.Data.coord;
             bool needsRebuild = _lastType != tileType
                              || (usesElementLayout && _lastCoord != hoveredCoord);
+            bool rotationChanged = _lastRotation != rotation;
 
             if (needsRebuild)
             {
@@ -195,6 +199,22 @@ namespace ElfVillage.Tiles
                 HexTile.SpawnDividersFor(tileType, _dividersRoot.transform);
                 TilePropVisualBuilder.SpawnProps(tileType, _dividersRoot.transform, hoveredCoord);
             }
+            else if (rotationChanged)
+            {
+                // ★カメラが止まったまま回転したとき、木のビルボードが横を向いたまま残る問題への対処。
+                //   TreeBillboardSystem の全体更新は「カメラが動いたか」だけで判断するため、
+                //   親（このゴースト）だけが回った場合は更新が丸ごと省かれ、
+                //   板が親の回転を継承したままになる（実測: 誤差 最大173.7度）。
+                //   ここでゴースト配下の板だけを明示的に組み直す。
+                //
+                //   ★再生成した場合（needsRebuild）はここへ来ない。
+                //     上のブロックより前で _previewGO の回転を設定済みで、
+                //     生成された板は TreeBillboardSystem.Register() の中で
+                //     その回転を前提に一度正対させられるため、再整列は不要（二度手間になる）。
+                TreeBillboardSystem.Instance?.RealignUnder(_previewGO.transform);
+            }
+
+            _lastRotation = rotation;
         }
 
         // ローカル辺インデックス基準の bool[6] を受け取り、該当する辺のグローだけ表示する
