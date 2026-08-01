@@ -1,6 +1,11 @@
 // 役割: 川タイル専用に、天面へ流路の溝を彫り込んだ六角柱メッシュを生成する静的ユーティリティ。
 //       外周（六角形の輪郭）・側面・底面は HexMeshBuilder と同一形状を維持し、
 //       天面のみ edgeA→edgeB の流路に沿って凹ませる（辺の境界では深さ0にして隣接タイルと段差なく繋がる）。
+//
+//       ★流路そのもの（中心線の形・半幅）は RiverChannelLayout が持つ。
+//         ここは「その流路をどれだけ深く彫るか」だけを決める。
+//         木や花を川へ生やさないための除外判定も同じ RiverChannelLayout を通るため、
+//         川幅を変えれば溝も除外範囲も一緒に動く。
 
 using System.Collections.Generic;
 using UnityEngine;
@@ -10,11 +15,11 @@ namespace ElfVillage.Tiles
     public static class RiverChannelMeshBuilder
     {
         // 流路パラメータ（Build と CenterlineHeight で共有し、ズレを防ぐ）
-        private const float HalfWidthRatio = 0.25f; // outerRadius比。既存の水流表現(riverWidth=outerRadius*0.5)の半幅と一致
+        // ★流路の半幅と中心線の形は RiverChannelLayout が唯一の情報源。
+        //   ここで独自に持つと、木や花の川よけ判定と溝の形が食い違う。
         private const float WallBandRatio  = 0.35f; // halfWidth比。壁の遷移帯（狭いほど壁が垂直に近い）
         private const float RampRatio      = 0.28f; // t空間での、辺境界からの立ち上がり割合
         private const float MaxDepthRatio  = 0.65f; // タイル厚み比。溝の最大深さ（0.5=厚みの半分）
-        private const int   CurveSamples   = 24;
 
         /// <summary>
         /// フラットトップ六角柱の天面に、edgeA→ctrl→edgeB を結ぶ2次ベジェ流路の溝を彫り込んだメッシュを生成する。
@@ -33,7 +38,7 @@ namespace ElfVillage.Tiles
 
             float h          = height * 0.5f;
             float maxDepth   = height * MaxDepthRatio;
-            float halfWidth  = outerRadius * HalfWidthRatio;
+            float halfWidth  = RiverChannelLayout.ChannelHalfWidth(outerRadius);
             float wallBand   = halfWidth * WallBandRatio;
 
             int S = Mathf.Max(2, subdivisions);
@@ -353,32 +358,10 @@ namespace ElfVillage.Tiles
                                            float halfWidth, float wallBand, float maxDepth,
                                            bool openA, bool openB)
         {
-            // 曲線をCurveSamples本の線分に近似し、各線分へ最近傍点を射影して距離とtを求める。
-            // 「最も近いサンプル点」だけを拾う方式だと、境界付近でtと距離の対応が不連続になり
-            // 局所的に高さが跳ねる（凹みが浅い/深いを行き来する）フェースが出るため、線分単位で補間する。
-            float   bestSqDist = float.MaxValue;
-            float   bestT      = 0f;
-            Vector3 prevPt     = QuadBezier(edgeA, ctrl, edgeB, 0f);
-            for (int i = 1; i <= CurveSamples; i++)
-            {
-                float   t1  = (float)i / CurveSamples;
-                Vector3 curPt = QuadBezier(edgeA, ctrl, edgeB, t1);
-                Vector3 seg   = curPt - prevPt;
-                float   segLenSq = seg.sqrMagnitude;
-                float   s = segLenSq > 1e-8f ? Mathf.Clamp01(Vector3.Dot(p - prevPt, seg) / segLenSq) : 0f;
-                Vector3 proj = prevPt + seg * s;
-                float   d2   = (p - proj).sqrMagnitude;
-                if (d2 < bestSqDist)
-                {
-                    bestSqDist = d2;
-                    float t0 = (float)(i - 1) / CurveSamples;
-                    bestT    = Mathf.Lerp(t0, t1, s);
-                }
-                prevPt = curPt;
-            }
-
-            float dist  = Mathf.Sqrt(bestSqDist);
-            float tBest = bestT;
+            // 中心線までの距離と、その位置の曲線パラメータtは RiverChannelLayout が算出する。
+            // ★木や花の川よけ判定もまったく同じ関数を通るので、
+            //   「溝の中」と「プロップを置いてはいけない場所」が定義上ずれない。
+            float dist  = RiverChannelLayout.DistanceToCenterline(p, edgeA, ctrl, edgeB, out float tBest);
 
             float innerHalf = halfWidth - wallBand;
             float wLat;
@@ -392,12 +375,6 @@ namespace ElfVillage.Tiles
             float wLong  = Mathf.Min(wLongA, wLongB);
 
             return maxDepth * wLat * wLong;
-        }
-
-        private static Vector3 QuadBezier(Vector3 p0, Vector3 p1, Vector3 p2, float t)
-        {
-            float mt = 1f - t;
-            return mt * mt * p0 + 2f * mt * t * p1 + t * t * p2;
         }
     }
 }
