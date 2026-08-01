@@ -87,6 +87,38 @@ namespace ElfVillage.Tiles
         [Tooltip("このセッションではデータ追加のみ。接続判定・デッキ抽選・プロップ生成はまだこのフィールドを参照しない")]
         public TileElement[] elements;
 
+        // ── 陸地装飾（見た目専用・ゲーム属性には一切参加しない） ──────────────
+        //
+        // ★elements とは別のデータ軸にしてある。
+        //   elements へ visualOnly で入れる方式だと、GetEffectCategories が
+        //   （意図的に）visualOnly を含む仕様のため、川タイルが森クラスターへ参加してしまう。
+        //   加えて OnValidate が edges と elements のカテゴリ不一致を毎回警告する。
+        //   別軸にすることで、下記すべてに参加しないことを構造的に保証する:
+        //     GetEffectiveCategories / GetEffectCategories / HasCategory / HasEffectCategory /
+        //     TerrainEffectWeight / EdgeMatcher / SynergyEvaluator / TileDeck のカテゴリ判定 /
+        //     RiverFlowSystem
+        //   これらのメソッドは landDecoration を一切読まない。読ませてはいけない。
+
+        [Header("陸地装飾（見た目専用）")]
+        [Tooltip("川タイルの陸地部分などへ生やす飾りの木・花。\n" +
+                  "★見た目だけの設定です。接続判定・カテゴリ判定・デッキ抽選・シナジー・" +
+                  "成長エフェクト・TerrainEffectWeight のいずれにも参加しません。\n" +
+                  "variantのcategoryは参照されません（propTypeとpropPrefabs/billboardSpriteだけを使います）。")]
+        public TerrainVariantDefinition landDecoration = null;
+
+        [Tooltip("陸地装飾の候補数。\n" +
+                  "★これは「川を避ける前の候補の数」であり、実際に表示される本数ではありません。\n" +
+                  "  川に近すぎる候補は捨てられるため、表示される本数はこれより少なくなります" +
+                  "（捨てた分を別の候補で補充することはしません）。\n" +
+                  "  0 のとき陸地装飾は無効です。")]
+        public int landDecorationCandidateCount = 0;
+
+        /// <summary>
+        /// 陸地装飾を生成するタイルかどうか。
+        /// ★見た目の生成条件専用。カテゴリ判定には絶対に使わないこと。
+        /// </summary>
+        public bool HasLandDecoration => landDecoration != null && landDecorationCandidateCount > 0;
+
         public EdgeType GetEdge(int direction)
         {
             int d = ((direction % 6) + 6) % 6;

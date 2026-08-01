@@ -34,15 +34,21 @@ namespace ElfVillage.Tiles
             // legacy/elements分岐はTileType.HasVisualElementsで判定する。
             // HexTile.SpawnPropsForと完全に同じ判定源のため、実配置とプレビューの
             // 分岐条件は常に一致する。
+            HexCoord coord = seedCoord ?? PreviewFallbackCoord;
+
             if (!type.HasVisualElements)
             {
                 HexTile.SpawnPropsPreview(type, parent, outerRadius, tileHeight);
-                return;
+            }
+            else
+            {
+                var elements = new List<TileElement>(type.EffectiveElements);
+                SpawnElementProps(elements, type, parent, coord, tileHeight);
             }
 
-            var elements = new List<TileElement>(type.EffectiveElements);
-            HexCoord coord = seedCoord ?? PreviewFallbackCoord;
-            SpawnElementProps(elements, type, parent, coord, tileHeight);
+            // 見た目専用の陸地装飾。実配置（HexTile.SpawnPropsFor）と同じ関数・同じ座標シードを通すので、
+            // 置く前と置いた後で1本もずれない。
+            HexTile.SpawnLandDecorationStatic(type, parent, coord, outerRadius, tileHeight);
         }
 
         private static void SpawnElementProps(List<TileElement> elements, TileType type,

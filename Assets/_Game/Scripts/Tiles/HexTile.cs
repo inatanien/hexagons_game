@@ -302,6 +302,77 @@ namespace ElfVillage.Tiles
                 }
             }
             SpawnDividers(type, parent);
+
+            // 見た目だけの陸地装飾。ゲーム属性には一切参加しない（TileType.landDecoration 参照）。
+            // legacy/複合のどちらのタイルでも同じように効くよう、分岐の外で呼ぶ。
+            SpawnLandDecorationStatic(type, parent, Data.coord, outerRadius, tileHeight);
+        }
+
+        /// <summary>
+        /// 川を避けるために陸地装飾を中心線からどれだけ離すか。
+        /// 流路の半幅（0.50）＋木の板がはみ出さないための余白。
+        /// ★値は LandDecorationLayout へ引数として渡す。あちら側へ埋め込まないこと
+        ///   （木と花で適切な余白が違うため）。
+        /// </summary>
+        internal const float LandDecorationClearance = 0.80f;
+
+        /// <summary>
+        /// TileType.landDecoration の見た目を生成する。
+        ///
+        /// ★これは景観だけの処理で、ゲーム属性とは完全に無関係。
+        ///   接続判定・カテゴリ判定・デッキ抽選・シナジー・成長エフェクト・
+        ///   TerrainEffectWeight のどれにも影響しない（それらは landDecoration を読まない）。
+        ///
+        /// ★実配置（SpawnPropsFor）と配置ゴースト（TilePropVisualBuilder）が
+        ///   この同じ関数を呼ぶ。置く前と置いた後で1本もずれないようにするため。
+        /// </summary>
+        internal static void SpawnLandDecorationStatic(TileType type, Transform parent, HexCoord coord,
+                                                        float outerRadius, float tileHeight)
+        {
+            if (type == null || parent == null || !type.HasLandDecoration) return;
+
+            var variant = type.landDecoration;
+            if (variant.propType != TilePropType.Tree && variant.propType != TilePropType.Flower) return;
+
+            // 川タイルなら流路を取得して、その近くの候補を捨てる。川でなければ除外なし。
+            bool hasChannel = RiverChannelLayout.TryGetChannel(
+                type, outerRadius, coord.q, coord.r, coord.s,
+                out Vector3 edgeA, out Vector3 ctrl, out Vector3 edgeB);
+
+            bool  isTree     = variant.propType == TilePropType.Tree;
+            float goldenAngle = isTree ? TreeGoldenAngleDeg : FlowerGoldenAngleDeg;
+            float maxRadius   = isTree ? TreeMaxRadius      : FlowerMaxRadius;
+
+            var placements = LandDecorationLayout.ComputePlacements(
+                type.landDecorationCandidateCount, coord.q, coord.r,
+                goldenAngle, maxRadius,
+                hasChannel, edgeA, ctrl, edgeB, LandDecorationClearance);
+
+            if (placements.Count == 0) return;
+
+            // WaterPS は transform 直下にいる必要があるため、装飾は必ずラッパーの下へ入れる
+            // （GetWaterFlowDir / ReverseWaterFlow が直下の子だけを探索する）。
+            var root = new GameObject("LandDecoration");
+            root.transform.SetParent(parent, false);
+            root.transform.localPosition = Vector3.zero;
+            root.transform.localRotation = Quaternion.identity;
+
+            if (isTree)
+            {
+                foreach (var p in placements)
+                    SpawnSingleTreeForVariantStatic(variant, root.transform, p.LocalOffset, p.Seed, tileHeight);
+                return;
+            }
+
+            var yOffset   = new Vector3(0f, HexMeshBuilder.TopY(tileHeight) + PropLiftY, 0f);
+            var positions = new Vector3[placements.Count];
+            var seeds     = new int[placements.Count];
+            for (int i = 0; i < placements.Count; i++)
+            {
+                positions[i] = placements[i].LocalOffset + yOffset;
+                seeds[i]     = placements[i].Seed;
+            }
+            SpawnFlowerBillboards(root.transform, variant.billboardSprite, positions, seeds);
         }
 
         // ── 複数要素タイルのプロップ生成（Session 4） ────────────────────────
