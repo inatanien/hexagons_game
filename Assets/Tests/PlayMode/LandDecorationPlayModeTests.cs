@@ -17,25 +17,34 @@ namespace ElfVillage.Tests
 {
     public class LandDecorationPlayModeTests
     {
-        private const string DecoratedPath =
-            "Assets/_Game/ScriptableObjects/TileDefinitions/TileType_RiverForest_Straight.asset";
-        private const string PlainPath =
-            "Assets/_Game/ScriptableObjects/TileDefinitions/TileType_River_Straight.asset";
+        private const string AssetDir = "Assets/_Game/ScriptableObjects/TileDefinitions/";
+
+        /// <summary>
+        /// 形状名 | 素の川アセット | 装飾つきアセット。
+        /// ★全テストをこの3形状で直交して回す。形状別の分岐を production に作っていないことは、
+        ///   同じテストが3形状すべてでそのまま通ることでしか確かめられない。
+        /// </summary>
+        public static readonly string[] ShapeCases =
+        {
+            "Straight|TileType_River_Straight|TileType_RiverForest_Straight",
+            "Bend|TileType_River_Bend|TileType_RiverForest_Bend",
+            "WideBend|TileType_River_Wide_Bend|TileType_RiverForest_WideBend",
+        };
 
         private readonly List<Object> _spawned = new();
 
-        private TileType _decorated;
-        private TileType _plain;
-
-        [SetUp]
-        public void SetUp()
+        private static void LoadShape(string shapeCase, out string name, out TileType plain, out TileType decorated)
         {
+            var parts = shapeCase.Split('|');
+            name      = parts[0];
+            plain     = null;
+            decorated = null;
 #if UNITY_EDITOR
-            _decorated = UnityEditor.AssetDatabase.LoadAssetAtPath<TileType>(DecoratedPath);
-            _plain     = UnityEditor.AssetDatabase.LoadAssetAtPath<TileType>(PlainPath);
+            plain     = UnityEditor.AssetDatabase.LoadAssetAtPath<TileType>(AssetDir + parts[1] + ".asset");
+            decorated = UnityEditor.AssetDatabase.LoadAssetAtPath<TileType>(AssetDir + parts[2] + ".asset");
 #endif
-            Assert.IsNotNull(_decorated, "TileType_RiverForest_Straight が見つからない");
-            Assert.IsNotNull(_plain,     "TileType_River_Straight が見つからない");
+            Assert.IsNotNull(plain,     parts[1] + " が見つからない");
+            Assert.IsNotNull(decorated, parts[2] + " が見つからない");
         }
 
         [TearDown]
@@ -121,23 +130,26 @@ namespace ElfVillage.Tests
         // ══ 実配置とゴーストの一致 ═══════════════════════════════════════
 
         [UnityTest]
-        public IEnumerator Decoration_MatchesBetweenPlacedAndGhost()
+        public IEnumerator Decoration_MatchesBetweenPlacedAndGhost(
+            [ValueSource(nameof(ShapeCases))] string shapeCase)
         {
             // ★置く前と置いた後で木が1本もずれないこと。
+            LoadShape(shapeCase, out string shape, out _, out TileType decorated);
+
             foreach (var coord in s_Coords)
             {
-                var placed = BuildPlaced(_decorated, coord);
-                var ghost  = BuildGhost(_decorated, coord);
+                var placed = BuildPlaced(decorated, coord);
+                var ghost  = BuildGhost(decorated, coord);
                 yield return null;
 
                 var p = DecorationPositions(placed.transform);
                 var g = DecorationPositions(ghost.transform);
 
-                Assert.Greater(p.Count, 0, $"{coord}: 実配置に木が無い");
-                Assert.AreEqual(p.Count, g.Count, $"{coord}: 本数が違う");
+                Assert.Greater(p.Count, 0, $"{shape} {coord}: 実配置に木が無い");
+                Assert.AreEqual(p.Count, g.Count, $"{shape} {coord}: 本数が違う");
                 for (int i = 0; i < p.Count; i++)
                     Assert.Less((p[i] - g[i]).magnitude, 0.0001f,
-                        $"{coord}: {i}本目が {p[i]} と {g[i]} でずれている");
+                        $"{shape} {coord}: {i}本目が {p[i]} と {g[i]} でずれている");
 
                 TearDown();
             }
@@ -146,17 +158,21 @@ namespace ElfVillage.Tests
         // ══ 川へ侵入しないこと ═══════════════════════════════════════════
 
         [UnityTest]
-        public IEnumerator Decoration_NeverStandsInTheRiver()
+        public IEnumerator Decoration_NeverStandsInTheRiver(
+            [ValueSource(nameof(ShapeCases))] string shapeCase)
         {
+            LoadShape(shapeCase, out string shape, out _, out TileType decorated);
+
             float halfWidth = RiverChannelLayout.ChannelHalfWidth(2.0f);
+            float clearance = HexTileLandDecorationClearance();
 
             foreach (var coord in s_Coords)
             {
-                var placed = BuildPlaced(_decorated, coord);
+                var placed = BuildPlaced(decorated, coord);
                 yield return null;
 
-                Assert.IsTrue(RiverChannelLayout.TryGetChannel(_decorated, 2.0f, coord.q, coord.r, coord.s,
-                    out Vector3 a, out Vector3 ctrl, out Vector3 b), "流路を取得できない");
+                Assert.IsTrue(RiverChannelLayout.TryGetChannel(decorated, 2.0f, coord.q, coord.r, coord.s,
+                    out Vector3 a, out Vector3 ctrl, out Vector3 b), $"{shape}: 流路を取得できない");
 
                 foreach (var pos in DecorationPositions(placed.transform))
                 {
@@ -164,9 +180,9 @@ namespace ElfVillage.Tests
                         new Vector3(pos.x, 0f, pos.z), a, ctrl, b);
 
                     Assert.Greater(d, halfWidth,
-                        $"{coord}: 木が溝の中に立っている（中心線から{d:F3}、半幅{halfWidth:F3}）");
-                    Assert.GreaterOrEqual(d, HexTileLandDecorationClearance(),
-                        $"{coord}: 木が岸ぎわに寄りすぎている（中心線から{d:F3}）");
+                        $"{shape} {coord}: 木が溝の中に立っている（中心線から{d:F3}、半幅{halfWidth:F3}）");
+                    Assert.GreaterOrEqual(d, clearance,
+                        $"{shape} {coord}: 木が岸ぎわに寄りすぎている（中心線から{d:F3}）");
                 }
 
                 TearDown();
@@ -185,63 +201,79 @@ namespace ElfVillage.Tests
         // ══ 川そのものが従来どおりであること ═════════════════════════════
 
         [UnityTest]
-        public IEnumerator DecoratedRiver_KeepsChannelWaterAndBanks()
+        public IEnumerator DecoratedRiver_KeepsChannelWaterAndBanks(
+            [ValueSource(nameof(ShapeCases))] string shapeCase)
         {
-            var plain     = BuildPlaced(_plain,     new HexCoord(3, -2));
+            // ★装飾を足したせいで川そのものが変わっていないこと。
+            //   メッシュは名前だけでなく頂点数まで突き合わせる（形が変わっていないことの担保）。
+            LoadShape(shapeCase, out string shape, out TileType plain, out TileType decorated);
+
+            var plainTile = BuildPlaced(plain, new HexCoord(3, -2));
             yield return null;
-            int plainPs    = CountWaterParticles(plain.transform);
-            int plainBanks = CountBankCubes(plain.transform);
-            var plainMesh  = plain.GetComponent<MeshFilter>().sharedMesh;
-            Assert.IsTrue(plainMesh.name.Contains("RiverChannel"), "前提: 素の川に溝メッシュがある");
+            int plainPs    = CountWaterParticles(plainTile.transform);
+            int plainBanks = CountBankCubes(plainTile.transform);
+            var plainMesh  = plainTile.GetComponent<MeshFilter>().sharedMesh;
+            Assert.IsTrue(plainMesh.name.Contains("RiverChannel"), $"{shape}: 前提として素の川に溝メッシュがある");
             string plainMeshName = plainMesh.name;
             int    plainSubMesh  = plainMesh.subMeshCount;
+            int    plainVerts    = plainMesh.vertexCount;
             TearDown();
 
-            var decorated = BuildPlaced(_decorated, new HexCoord(3, -2));
+            var decoratedTile = BuildPlaced(decorated, new HexCoord(3, -2));
             yield return null;
-            var decoratedMesh = decorated.GetComponent<MeshFilter>().sharedMesh;
+            var decoratedMesh = decoratedTile.GetComponent<MeshFilter>().sharedMesh;
 
-            Assert.AreEqual(plainMeshName, decoratedMesh.name, "溝メッシュが差し替わっている");
-            Assert.AreEqual(plainSubMesh,  decoratedMesh.subMeshCount, "サブメッシュ数が違う");
-            Assert.AreEqual(plainPs,       CountWaterParticles(decorated.transform), "水パーティクルの数が違う");
-            Assert.AreEqual(plainBanks,    CountBankCubes(decorated.transform), "川岸の数が違う");
+            Assert.AreEqual(plainMeshName, decoratedMesh.name,        $"{shape}: 溝メッシュが差し替わっている");
+            Assert.AreEqual(plainSubMesh,  decoratedMesh.subMeshCount, $"{shape}: サブメッシュ数が違う");
+            Assert.AreEqual(plainVerts,    decoratedMesh.vertexCount,  $"{shape}: 溝メッシュの頂点数が違う");
+            Assert.AreEqual(plainPs,       CountWaterParticles(decoratedTile.transform), $"{shape}: 水パーティクルの数が違う");
+            Assert.AreEqual(plainBanks,    CountBankCubes(decoratedTile.transform),      $"{shape}: 川岸の数が違う");
         }
 
         [UnityTest]
-        public IEnumerator DecoratedRiver_KeepsWaterParticlesAsDirectChildren()
+        public IEnumerator DecoratedRiver_KeepsWaterParticlesAsDirectChildren(
+            [ValueSource(nameof(ShapeCases))] string shapeCase)
         {
             // ★GetWaterFlowDir / ReverseWaterFlow は transform 直下しか探さない。
             //   装飾のラッパーが割り込んで WaterPS が潜ると、川の流れ向き調整が壊れる。
-            var tile = BuildPlaced(_decorated, new HexCoord(3, -2));
+            LoadShape(shapeCase, out string shape, out _, out TileType decorated);
+
+            var tile = BuildPlaced(decorated, new HexCoord(3, -2));
             yield return null;
 
             int direct = 0;
             for (int i = 0; i < tile.transform.childCount; i++)
                 if (tile.transform.GetChild(i).name == "WaterPS") direct++;
 
-            Assert.Greater(direct, 0, "WaterPS が直下の子に居ない");
-            Assert.AreNotEqual(Vector3.zero, tile.GetWaterFlowDir(), "流れの向きが取れない");
+            Assert.Greater(direct, 0, $"{shape}: WaterPS が直下の子に居ない");
+            Assert.AreNotEqual(Vector3.zero, tile.GetWaterFlowDir(), $"{shape}: 流れの向きが取れない");
         }
 
         // ══ 既存タイルへの無影響 ═════════════════════════════════════════
 
         [UnityTest]
-        public IEnumerator PlainRiver_GetsNoDecoration()
+        public IEnumerator PlainRiver_GetsNoDecoration(
+            [ValueSource(nameof(ShapeCases))] string shapeCase)
         {
-            var tile = BuildPlaced(_plain, new HexCoord(3, -2));
+            LoadShape(shapeCase, out string shape, out TileType plain, out _);
+
+            var tile = BuildPlaced(plain, new HexCoord(3, -2));
             yield return null;
 
-            Assert.AreEqual(0, DecorationPositions(tile.transform).Count, "素の川に木が生えている");
-            Assert.IsNull(tile.transform.Find("LandDecoration"), "素の川に LandDecoration が付いている");
+            Assert.AreEqual(0, DecorationPositions(tile.transform).Count, $"{shape}: 素の川に木が生えている");
+            Assert.IsNull(tile.transform.Find("LandDecoration"), $"{shape}: 素の川に LandDecoration が付いている");
         }
 
         [UnityTest]
-        public IEnumerator PlainRiver_GhostAlsoGetsNoDecoration()
+        public IEnumerator PlainRiver_GhostAlsoGetsNoDecoration(
+            [ValueSource(nameof(ShapeCases))] string shapeCase)
         {
-            var ghost = BuildGhost(_plain, new HexCoord(3, -2));
+            LoadShape(shapeCase, out string shape, out TileType plain, out _);
+
+            var ghost = BuildGhost(plain, new HexCoord(3, -2));
             yield return null;
 
-            Assert.AreEqual(0, DecorationPositions(ghost.transform).Count, "素の川のゴーストに木が生えている");
+            Assert.AreEqual(0, DecorationPositions(ghost.transform).Count, $"{shape}: 素の川のゴーストに木が生えている");
         }
 
         // ══ 補助 ═════════════════════════════════════════════════════════

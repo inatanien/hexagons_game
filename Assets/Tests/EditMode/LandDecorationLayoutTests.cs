@@ -316,26 +316,150 @@ namespace ElfVillage.Tests
             }
         }
 
-        [Test]
-        public void RiverForestAsset_IsPureRiverWithDecoration()
+        // ══ 実アセット（3形状を直交して検証） ═══════════════════════════
+
+        private const string AssetDir = "Assets/_Game/ScriptableObjects/TileDefinitions/";
+
+        /// <summary>形状名 | 素の川アセット | 装飾つきアセット。全形状テストの唯一の情報源。</summary>
+        public static readonly string[] ShapeCases =
         {
-            // 試作アセットが「ゲーム上は純粋なRiver」であることを、実アセットに対して固定する。
-            var plain = UnityEditor.AssetDatabase.LoadAssetAtPath<TileType>(
-                "Assets/_Game/ScriptableObjects/TileDefinitions/TileType_River_Straight.asset");
-            var decorated = UnityEditor.AssetDatabase.LoadAssetAtPath<TileType>(
-                "Assets/_Game/ScriptableObjects/TileDefinitions/TileType_RiverForest_Straight.asset");
-            Assert.IsNotNull(plain);
-            Assert.IsNotNull(decorated, "TileType_RiverForest_Straight が見つからない");
+            "Straight|TileType_River_Straight|TileType_RiverForest_Straight",
+            "Bend|TileType_River_Bend|TileType_RiverForest_Bend",
+            "WideBend|TileType_River_Wide_Bend|TileType_RiverForest_WideBend",
+        };
+
+        private static void LoadShape(string shapeCase, out string name, out TileType plain, out TileType decorated)
+        {
+            var parts = shapeCase.Split('|');
+            name      = parts[0];
+            plain     = UnityEditor.AssetDatabase.LoadAssetAtPath<TileType>(AssetDir + parts[1] + ".asset");
+            decorated = UnityEditor.AssetDatabase.LoadAssetAtPath<TileType>(AssetDir + parts[2] + ".asset");
+            Assert.IsNotNull(plain,     parts[1] + " が見つからない");
+            Assert.IsNotNull(decorated, parts[2] + " が見つからない");
+        }
+
+        [Test]
+        public void RiverForestAsset_IsPureRiverWithDecoration([ValueSource(nameof(ShapeCases))] string shapeCase)
+        {
+            // ★形状が増えてもゲーム属性は River のままであること。
+            LoadShape(shapeCase, out string name, out TileType plain, out TileType decorated);
 
             Assert.AreEqual(CategorySnapshot(plain), CategorySnapshot(decorated),
-                "試作アセットのカテゴリ判定が River_Straight と違う");
-            Assert.AreEqual(plain.tileCategory, decorated.tileCategory);
-            Assert.AreEqual(plain.propType,     decorated.propType, "溝メッシュの条件(propType=Water)が失われている");
-            Assert.IsFalse(decorated.HasVisualElements, "elements を使っている（カテゴリへ漏れる）");
-            Assert.IsTrue(decorated.HasLandDecoration);
+                $"{name}: カテゴリ判定が素の川と違う");
+            Assert.AreEqual(plain.tileCategory, decorated.tileCategory, $"{name}: tileCategory が違う");
+            Assert.AreEqual(plain.propType, decorated.propType,
+                $"{name}: 溝メッシュの条件(propType=Water)が失われている");
+            Assert.IsFalse(decorated.HasVisualElements, $"{name}: elements を使っている（カテゴリへ漏れる）");
+            Assert.IsTrue(decorated.HasLandDecoration,  $"{name}: 陸地装飾が無効");
 
             for (int d = 0; d < 6; d++)
-                Assert.AreEqual(plain.GetEdge(d), decorated.GetEdge(d), $"dir{d} の辺が違う");
+                Assert.AreEqual(plain.GetEdge(d), decorated.GetEdge(d), $"{name}: dir{d} の辺が違う");
+        }
+
+        [Test]
+        public void RiverForestAsset_ConnectsToPlainRiversAndNotToForest(
+            [ValueSource(nameof(ShapeCases))] string shapeCase)
+        {
+            LoadShape(shapeCase, out string name, out TileType plain, out TileType decorated);
+
+            var forestTile = UnityEditor.AssetDatabase.LoadAssetAtPath<TileType>(AssetDir + "TileType_Forest.asset");
+            var fieldTile  = UnityEditor.AssetDatabase.LoadAssetAtPath<TileType>(AssetDir + "TileType_Field.asset");
+
+            Assert.IsTrue(EdgeMatcher.SameCategory(decorated, plain), $"{name}: 素の川と接続できない");
+            Assert.IsFalse(EdgeMatcher.SameCategory(decorated, forestTile), $"{name}: 森として扱われている");
+            Assert.IsFalse(EdgeMatcher.SameCategory(decorated, fieldTile),  $"{name}: 花畑として扱われている");
+
+            // 装飾つきどうしも互いに接続できること
+            foreach (var other in ShapeCases)
+            {
+                LoadShape(other, out string otherName, out _, out TileType otherDecorated);
+                Assert.IsTrue(EdgeMatcher.SameCategory(decorated, otherDecorated),
+                    $"{name} と {otherName} が接続できない");
+            }
+        }
+
+        [Test]
+        public void RiverForestAsset_UsesTheChannelFromItsOwnEdges(
+            [ValueSource(nameof(ShapeCases))] string shapeCase)
+        {
+            // ★形状別の分岐を持たないことの裏返し。装飾つきと素の川で流路が一致する。
+            LoadShape(shapeCase, out string name, out TileType plain, out TileType decorated);
+
+            foreach (var coord in new[] { new Vector3Int(0, 0, 0), new Vector3Int(3, -2, -1), new Vector3Int(-4, 5, -1) })
+            {
+                bool okPlain = RiverChannelLayout.TryGetChannel(plain, OuterRadius, coord.x, coord.y, coord.z,
+                    out Vector3 pa, out Vector3 pc, out Vector3 pb);
+                bool okDeco = RiverChannelLayout.TryGetChannel(decorated, OuterRadius, coord.x, coord.y, coord.z,
+                    out Vector3 da, out Vector3 dc, out Vector3 db);
+
+                Assert.IsTrue(okPlain, $"{name}: 素の川で流路が取れない");
+                Assert.IsTrue(okDeco,  $"{name}: 装飾つきで流路が取れない");
+                Assert.AreEqual(pa, da, $"{name} {coord}: edgeA が違う");
+                Assert.AreEqual(pc, dc, $"{name} {coord}: ctrl が違う");
+                Assert.AreEqual(pb, db, $"{name} {coord}: edgeB が違う");
+            }
+        }
+
+        [Test]
+        public void RiverForestAsset_PlacementsAvoidItsOwnChannel(
+            [ValueSource(nameof(ShapeCases))] string shapeCase)
+        {
+            // ★実アセットの設定値（候補数）で、実際に川を避けられること。
+            LoadShape(shapeCase, out string name, out _, out TileType decorated);
+
+            float clearance = LandDecorationClearanceFromProduction();
+            float halfWidth = RiverChannelLayout.ChannelHalfWidth(OuterRadius);
+
+            foreach (var coord in new[] { new Vector3Int(0, 0, 0), new Vector3Int(3, -2, -1),
+                                          new Vector3Int(-4, 5, -1), new Vector3Int(7, 1, -8) })
+            {
+                Assert.IsTrue(RiverChannelLayout.TryGetChannel(decorated, OuterRadius, coord.x, coord.y, coord.z,
+                    out Vector3 a, out Vector3 ctrl, out Vector3 b));
+
+                var placements = LandDecorationLayout.ComputePlacements(
+                    decorated.landDecorationCandidateCount, coord.x, coord.y,
+                    GoldenAngle, MaxRadius, true, a, ctrl, b, clearance);
+
+                Assert.Greater(placements.Count, 0, $"{name} {coord}: 木が1本も残らない");
+                foreach (var p in placements)
+                {
+                    float d = RiverChannelLayout.DistanceToCenterline(p.LocalOffset, a, ctrl, b);
+                    Assert.Greater(d, halfWidth,  $"{name} {coord}: 木が溝の中（{d:F3}）");
+                    Assert.GreaterOrEqual(d, clearance, $"{name} {coord}: 木が岸ぎわ（{d:F3}）");
+                }
+            }
+        }
+
+        [Test]
+        public void RiverForestAssets_ShareTheSameDecorationSettings()
+        {
+            // 形状ごとに設定がばらつくと、本数差が「形状のせい」なのか「設定違い」なのか分からなくなる。
+            TerrainVariantDefinition variant = null;
+            int candidateCount = -1;
+
+            foreach (var shapeCase in ShapeCases)
+            {
+                LoadShape(shapeCase, out string name, out _, out TileType decorated);
+                if (variant == null)
+                {
+                    variant        = decorated.landDecoration;
+                    candidateCount = decorated.landDecorationCandidateCount;
+                    continue;
+                }
+                Assert.AreSame(variant, decorated.landDecoration, $"{name}: landDecoration が他の形状と違う");
+                Assert.AreEqual(candidateCount, decorated.landDecorationCandidateCount,
+                    $"{name}: 候補数が他の形状と違う");
+            }
+            Assert.AreEqual(32, candidateCount, "候補数の既定が32から変わっている");
+        }
+
+        /// <summary>production が使っている clearance（internal const）。テスト側で値を二重に持たない。</summary>
+        private static float LandDecorationClearanceFromProduction()
+        {
+            var f = typeof(HexTile).GetField("LandDecorationClearance",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            Assert.IsNotNull(f, "HexTile.LandDecorationClearance が見つからない");
+            return (float)f.GetValue(null);
         }
     }
 }
