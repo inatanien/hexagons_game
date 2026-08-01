@@ -21,14 +21,26 @@ namespace ElfVillage.Tests
 
         /// <summary>
         /// 形状名 | 素の川アセット | 装飾つきアセット。
-        /// ★全テストをこの3形状で直交して回す。形状別の分岐を production に作っていないことは、
-        ///   同じテストが3形状すべてでそのまま通ることでしか確かめられない。
+        /// ★全テストを 木・花 × 3形状 の6通りで直交して回す。
+        ///   形状別・装飾別の分岐を production に作っていないことは、
+        ///   同じテストが6通りすべてでそのまま通ることでしか確かめられない。
         /// </summary>
         public static readonly string[] ShapeCases =
         {
-            "Straight|TileType_River_Straight|TileType_RiverForest_Straight",
-            "Bend|TileType_River_Bend|TileType_RiverForest_Bend",
-            "WideBend|TileType_River_Wide_Bend|TileType_RiverForest_WideBend",
+            "Forest-Straight|TileType_River_Straight|TileType_RiverForest_Straight",
+            "Forest-Bend|TileType_River_Bend|TileType_RiverForest_Bend",
+            "Forest-WideBend|TileType_River_Wide_Bend|TileType_RiverForest_WideBend",
+            "Flower-Straight|TileType_River_Straight|TileType_RiverFlower_Straight",
+            "Flower-Bend|TileType_River_Bend|TileType_RiverFlower_Bend",
+            "Flower-WideBend|TileType_River_Wide_Bend|TileType_RiverFlower_WideBend",
+        };
+
+        /// <summary>花だけを対象にするテスト用（ParticleSystem の本数など）。</summary>
+        public static readonly string[] FlowerShapeCases =
+        {
+            "Flower-Straight|TileType_River_Straight|TileType_RiverFlower_Straight",
+            "Flower-Bend|TileType_River_Bend|TileType_RiverFlower_Bend",
+            "Flower-WideBend|TileType_River_Wide_Bend|TileType_RiverFlower_WideBend",
         };
 
         private readonly List<Object> _spawned = new();
@@ -105,10 +117,27 @@ namespace ElfVillage.Tests
             var host = FindLandDecoration(root);
             if (host == null) return list;
 
-            for (int i = 0; i < host.childCount; i++)
+            // ★花はラッパーの下に ParticleSystem 1個としてまとまっている。
+            //   子オブジェクトを数えると常に1になってしまうので、粒の位置そのものを読む。
+            var ps = host.GetComponentInChildren<ParticleSystem>(true);
+            if (ps != null)
             {
-                var p = host.GetChild(i).localPosition;
-                list.Add(new Vector3(p.x, 0f, p.z));
+                var buffer = new ParticleSystem.Particle[ps.main.maxParticles];
+                int alive  = ps.GetParticles(buffer);
+                for (int i = 0; i < alive; i++)
+                {
+                    // simulationSpace は Local なので position はそのままタイルローカル
+                    var p = buffer[i].position;
+                    list.Add(new Vector3(p.x, 0f, p.z));
+                }
+            }
+            else
+            {
+                for (int i = 0; i < host.childCount; i++)
+                {
+                    var p = host.GetChild(i).localPosition;
+                    list.Add(new Vector3(p.x, 0f, p.z));
+                }
             }
 
             list.Sort((x, y) => x.x != y.x ? x.x.CompareTo(y.x) : x.z.CompareTo(y.z));
@@ -247,6 +276,35 @@ namespace ElfVillage.Tests
 
             Assert.Greater(direct, 0, $"{shape}: WaterPS が直下の子に居ない");
             Assert.AreNotEqual(Vector3.zero, tile.GetWaterFlowDir(), $"{shape}: 流れの向きが取れない");
+        }
+
+        // ══ 花は ParticleSystem 1個にまとまっていること ═══════════════════
+
+        [UnityTest]
+        public IEnumerator FlowerDecoration_UsesASingleParticleSystem(
+            [ValueSource(nameof(FlowerShapeCases))] string shapeCase)
+        {
+            // ★花1輪ごとにParticleSystemを作ると、タイルが増えたときに一気に重くなる。
+            //   既存の花畑タイルと同じく、タイル1枚あたり1個へまとめたままにする。
+            LoadShape(shapeCase, out string shape, out TileType plain, out TileType decorated);
+
+            var plainTile = BuildPlaced(plain, new HexCoord(3, -2));
+            yield return null;
+            int plainPs = plainTile.GetComponentsInChildren<ParticleSystem>(true).Length;
+            TearDown();
+
+            var tile = BuildPlaced(decorated, new HexCoord(3, -2));
+            yield return null;
+
+            var host = FindLandDecoration(tile.transform);
+            Assert.IsNotNull(host, $"{shape}: LandDecoration が無い");
+
+            var systems = host.GetComponentsInChildren<ParticleSystem>(true);
+            Assert.AreEqual(1, systems.Length, $"{shape}: 花の ParticleSystem が {systems.Length} 個ある");
+            Assert.AreEqual(plainPs + 1, tile.GetComponentsInChildren<ParticleSystem>(true).Length,
+                $"{shape}: タイル全体の ParticleSystem 数が想定と違う");
+
+            Assert.Greater(DecorationPositions(tile.transform).Count, 0, $"{shape}: 花が1輪も出ていない");
         }
 
         // ══ 既存タイルへの無影響 ═════════════════════════════════════════

@@ -321,11 +321,33 @@ namespace ElfVillage.Tests
         private const string AssetDir = "Assets/_Game/ScriptableObjects/TileDefinitions/";
 
         /// <summary>形状名 | 素の川アセット | 装飾つきアセット。全形状テストの唯一の情報源。</summary>
+        public static readonly string[] ForestShapeCases =
+        {
+            "Forest-Straight|TileType_River_Straight|TileType_RiverForest_Straight",
+            "Forest-Bend|TileType_River_Bend|TileType_RiverForest_Bend",
+            "Forest-WideBend|TileType_River_Wide_Bend|TileType_RiverForest_WideBend",
+        };
+
+        public static readonly string[] FlowerShapeCases =
+        {
+            "Flower-Straight|TileType_River_Straight|TileType_RiverFlower_Straight",
+            "Flower-Bend|TileType_River_Bend|TileType_RiverFlower_Bend",
+            "Flower-WideBend|TileType_River_Wide_Bend|TileType_RiverFlower_WideBend",
+        };
+
+        /// <summary>
+        /// 木・花の両方 × 3形状。
+        /// ★装飾の中身にも形状にも依存しない処理であることは、
+        ///   同じテストが6通りすべてでそのまま通ることでしか確かめられない。
+        /// </summary>
         public static readonly string[] ShapeCases =
         {
-            "Straight|TileType_River_Straight|TileType_RiverForest_Straight",
-            "Bend|TileType_River_Bend|TileType_RiverForest_Bend",
-            "WideBend|TileType_River_Wide_Bend|TileType_RiverForest_WideBend",
+            "Forest-Straight|TileType_River_Straight|TileType_RiverForest_Straight",
+            "Forest-Bend|TileType_River_Bend|TileType_RiverForest_Bend",
+            "Forest-WideBend|TileType_River_Wide_Bend|TileType_RiverForest_WideBend",
+            "Flower-Straight|TileType_River_Straight|TileType_RiverFlower_Straight",
+            "Flower-Bend|TileType_River_Bend|TileType_RiverFlower_Bend",
+            "Flower-WideBend|TileType_River_Wide_Bend|TileType_RiverFlower_WideBend",
         };
 
         private static void LoadShape(string shapeCase, out string name, out TileType plain, out TileType decorated)
@@ -420,37 +442,98 @@ namespace ElfVillage.Tests
                     decorated.landDecorationCandidateCount, coord.x, coord.y,
                     GoldenAngle, MaxRadius, true, a, ctrl, b, clearance);
 
-                Assert.Greater(placements.Count, 0, $"{name} {coord}: 木が1本も残らない");
+                Assert.Greater(placements.Count, 0, $"{name} {coord}: 装飾が1つも残らない");
                 foreach (var p in placements)
                 {
                     float d = RiverChannelLayout.DistanceToCenterline(p.LocalOffset, a, ctrl, b);
-                    Assert.Greater(d, halfWidth,  $"{name} {coord}: 木が溝の中（{d:F3}）");
-                    Assert.GreaterOrEqual(d, clearance, $"{name} {coord}: 木が岸ぎわ（{d:F3}）");
+                    Assert.Greater(d, halfWidth,  $"{name} {coord}: 溝の中に置かれている（{d:F3}）");
+                    Assert.GreaterOrEqual(d, clearance, $"{name} {coord}: 岸ぎわに寄りすぎ（{d:F3}）");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 花の絵がセル半幅のどこまで描かれているか（実測 0.927）。
+        /// ★花は地面に寝た板なので、中心が clearance を満たしていても
+        ///   絵の縁が水面（中心線から半幅0.50以内）へ届けば水に浮いて見える。
+        /// </summary>
+        private const float FlowerArtRadiusFraction = 0.927f;
+
+        [Test]
+        public void FlowerDecoration_ArtNeverOverlapsTheWaterSurface(
+            [ValueSource(nameof(FlowerShapeCases))] string shapeCase)
+        {
+            // ★木は縦の板なので枝葉が水面へ張り出しても自然だが、
+            //   花は寝た板なので水面に重なると「浮いている」ようにしか見えない。
+            //   中心位置ではなく、描かれた絵の縁で判定する。
+            LoadShape(shapeCase, out string name, out _, out TileType decorated);
+
+            float clearance = LandDecorationClearanceFromProduction();
+            float halfWidth = RiverChannelLayout.ChannelHalfWidth(OuterRadius);
+
+            foreach (var coord in new[] { new Vector3Int(0, 0, 0), new Vector3Int(3, -2, -1),
+                                          new Vector3Int(-4, 5, -1), new Vector3Int(7, 1, -8),
+                                          new Vector3Int(11, -3, -8) })
+            {
+                Assert.IsTrue(RiverChannelLayout.TryGetChannel(decorated, OuterRadius, coord.x, coord.y, coord.z,
+                    out Vector3 a, out Vector3 ctrl, out Vector3 b));
+
+                var placements = LandDecorationLayout.ComputePlacements(
+                    decorated.landDecorationCandidateCount, coord.x, coord.y,
+                    GoldenAngle, MaxRadius, true, a, ctrl, b, clearance);
+
+                foreach (var p in placements)
+                {
+                    // SpawnFlowerBillboards と同じ式: startSize = 0.40 + (seed % 21) / 100
+                    float startSize   = 0.40f + (Mathf.Abs(p.Seed) % 21) / 100f;
+                    float drawnRadius = startSize * 0.5f * FlowerArtRadiusFraction;
+                    float d           = RiverChannelLayout.DistanceToCenterline(p.LocalOffset, a, ctrl, b);
+
+                    Assert.GreaterOrEqual(d - drawnRadius, halfWidth,
+                        $"{name} {coord}: 花の絵が水面へ {(halfWidth - (d - drawnRadius)):F3} めり込んでいる " +
+                        $"(中心 {d:F3} / 描画半径 {drawnRadius:F3})");
                 }
             }
         }
 
         [Test]
-        public void RiverForestAssets_ShareTheSameDecorationSettings()
+        public void ClearanceCoversTheLargestFlower()
+        {
+            // ★clearance を下げるとこのテストが落ちる。
+            //   最大の花（startSize 0.60）の絵の縁が、水面の外に留まる値でなければならない。
+            float clearance = LandDecorationClearanceFromProduction();
+            float halfWidth = RiverChannelLayout.ChannelHalfWidth(OuterRadius);
+            float largest   = 0.60f * 0.5f * FlowerArtRadiusFraction;
+
+            Assert.GreaterOrEqual(clearance, halfWidth + largest,
+                $"clearance {clearance:F3} では最大の花の絵が水面へ入る（必要 {halfWidth + largest:F3} 以上）");
+        }
+
+        [Test]
+        public void RiverDecorationAssets_ShareSettingsWithinEachFamily()
         {
             // 形状ごとに設定がばらつくと、本数差が「形状のせい」なのか「設定違い」なのか分からなくなる。
-            TerrainVariantDefinition variant = null;
-            int candidateCount = -1;
+            AssertFamilyIsConsistent(ForestShapeCases, TilePropType.Tree,   32, "Forest");
+            AssertFamilyIsConsistent(FlowerShapeCases, TilePropType.Flower, 28, "Flower");
+        }
 
-            foreach (var shapeCase in ShapeCases)
+        private static void AssertFamilyIsConsistent(string[] cases, TilePropType expectedProp,
+                                                      int expectedCount, string family)
+        {
+            TerrainVariantDefinition variant = null;
+
+            foreach (var shapeCase in cases)
             {
                 LoadShape(shapeCase, out string name, out _, out TileType decorated);
-                if (variant == null)
-                {
-                    variant        = decorated.landDecoration;
-                    candidateCount = decorated.landDecorationCandidateCount;
-                    continue;
-                }
-                Assert.AreSame(variant, decorated.landDecoration, $"{name}: landDecoration が他の形状と違う");
-                Assert.AreEqual(candidateCount, decorated.landDecorationCandidateCount,
-                    $"{name}: 候補数が他の形状と違う");
+
+                Assert.AreEqual(expectedProp, decorated.landDecoration.propType,
+                    $"{name}: {family} なのに propType が違う");
+                Assert.AreEqual(expectedCount, decorated.landDecorationCandidateCount,
+                    $"{name}: 候補数が {family} の既定と違う");
+
+                if (variant == null) variant = decorated.landDecoration;
+                else Assert.AreSame(variant, decorated.landDecoration, $"{name}: landDecoration が他の形状と違う");
             }
-            Assert.AreEqual(32, candidateCount, "候補数の既定が32から変わっている");
         }
 
         /// <summary>production が使っている clearance（internal const）。テスト側で値を二重に持たない。</summary>
