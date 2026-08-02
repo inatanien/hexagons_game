@@ -162,6 +162,42 @@ namespace ElfVillage.Tests
 
         // ══ 既存Riverとの同一性 ══════════════════════════════════════════
 
+        // ══ 森×川シナジーへの登録（Scene設定） ══════════════════════════
+
+        [Test]
+        public void ScenicRivers_AreRegisteredAsTheRiverSideOfTheForestRiverSynergy()
+        {
+            // SynergyEvaluator は森×川専用ではない汎用クラスなので、River固有の分岐は入れず
+            // Scene の _typesB へ登録する方式を採っている。その登録漏れをここで検出する。
+            // ★PlayModeテストは専用の一時シーンで走り実シーンを読めないため、EditMode側に置いている。
+            var scene = UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene();
+            if (scene.name != "Phase1_v002")
+                Assert.Ignore($"Phase1_v002 が開かれていないためスキップ（現在: {scene.name}）");
+
+            SynergyEvaluator forestRiver = null;
+            foreach (var se in Object.FindObjectsByType<SynergyEvaluator>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                if (new UnityEditor.SerializedObject(se).FindProperty("_synergyId").stringValue == "ForestRiver")
+                    forestRiver = se;
+            Assert.IsNotNull(forestRiver, "ForestRiver の SynergyEvaluator がシーンに無い");
+
+            var so     = new UnityEditor.SerializedObject(forestRiver);
+            var typesA = so.FindProperty("_typesA");
+            var typesB = so.FindProperty("_typesB");
+
+            System.Func<UnityEditor.SerializedProperty, TileType, bool> Contains = (arr, t) => {
+                for (int i = 0; i < arr.arraySize; i++)
+                    if (arr.GetArrayElementAtIndex(i).objectReferenceValue == t) return true;
+                return false; };
+
+            // 川9種すべてが River 側に居ること（既存3種の回帰も兼ねる）
+            foreach (var name in RiverAssets)
+                Assert.IsTrue(Contains(typesB, Load(name)), $"{name} が ForestRiver シナジーの River 側に居ない");
+
+            // 景観川は Forest 側には居ないこと（見た目に木があっても森ではない）
+            foreach (var name in RiverAssets)
+                Assert.IsFalse(Contains(typesA, Load(name)), $"{name} が Forest 側に登録されている");
+        }
+
         [Test]
         public void ScenicRivers_JudgeIdenticallyToPlainRivers()
         {
