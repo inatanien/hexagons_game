@@ -1,6 +1,13 @@
 // 役割: 川タイルの水流演出。単体配置時は HexTile の WaterPS を停止（滞留）、
 //       川タイル同士が River エッジで接続した瞬間に WaterPS を再開させる。
 //       以後の上流・下流タイルへ連鎖伝播する。
+//
+//       ★川かどうかは TileType.HasCategory(River) で判定する。
+//         以前はSceneのTileType[]へ登録されたアセット参照の一致で判定していたが、
+//         川タイルを1種増やすたびに登録を忘れると流れが起きなくなる。
+//         実際、景観川（RiverForest/RiverFlower）6種を追加した際にこれが起きた。
+//         接続判定(EdgeMatcher)・デッキ抽選と同じ情報源へ揃えることで、
+//         「Riverカテゴリを持つタイルは必ず川として流れる」を保証する。
 
 using System.Collections.Generic;
 using UnityEngine;
@@ -11,9 +18,6 @@ namespace ElfVillage.Tiles
 {
     public class RiverFlowSystem : MonoBehaviour
     {
-        [Header("川タイル種別")]
-        [SerializeField] private TileType[] _riverTypes;
-
         private readonly Dictionary<HexTile, TileFlowState> _states   = new();
         private readonly Dictionary<HexCoord, HexTile>       _coordMap = new();
         private Material _mat;
@@ -200,12 +204,13 @@ namespace ElfVillage.Tiles
             return -1;
         }
 
-        private bool IsRiver(TileType t)
-        {
-            if (t == null || _riverTypes == null) return false;
-            foreach (var rt in _riverTypes) if (rt == t) return true;
-            return false;
-        }
+        /// <summary>
+        /// 川タイルか。接続判定・デッキ抽選と同じ TileType.HasCategory(River) を使う。
+        /// ★見た目だけの landDecoration（RiverForestの木・RiverFlowerの花）は
+        ///   カテゴリへ一切参加しないため、ここの判定にも影響しない。
+        /// </summary>
+        private static bool IsRiver(TileType t)
+            => t != null && t.HasCategory(TileCategory.River);
 
         // HexTile.SpawnWater が生成した "WaterPS" を表示/非表示で制御する
         // GetComponentsInChildren は不確かなため直接子を走査する
