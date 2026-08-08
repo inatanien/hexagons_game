@@ -107,3 +107,11 @@ InitTestScene*.unity*
 
 # Claude Code MCP config (VS Code extension overwrites this on session start)
 .mcp.json
+
+# Blender 作業ファイル（Assets/ の外に置く。詳細は BlenderWork/README.md）
+# スクリプトと README だけ追跡し、モデルの実データは除外する。
+# Git LFS 未導入のため、数十MBのバイナリを履歴へ入れない。
+/BlenderWork/Source/
+/BlenderWork/Blend/
+/BlenderWork/Export/
+*.blend
