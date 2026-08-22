@@ -258,13 +258,22 @@ Claude Code は
 1. Unityを起動
 2. プロジェクトを開く
 3. UnityMCPサーバーが起動していることを確認
-4. userスコープへ再登録（Unity起動のたびに必要）
+4. UnityMCP は登録済みのため、通常なにもしなくてよい
+
+   ※ MCP for Unity v10.1.2 は起動のたびに全スコープの登録を削除するため、
+   EditorPrefs の `MCPForUnity.AutoRegisterEnabled` を `false` にしてある
+   （2026-08-22 に設定・Unity再起動で生存を実測確認）。
+
+   **MCP for Unity パネルの「Configure」ボタンは押さないこと。**
+   押すと登録が全スコープから削除され、また繋がらなくなる。
+   パネルが赤い「Not Configured」表示のままなのが正常。
+
+   繋がらない場合は、まずトップレベルの `mcpServers` を直接確認する
+   （`claude mcp get` / `list` の表示は当てにならない）。
+   `UnityMCP` が消えていたら次を実行し、Claude Code を再起動する。
 
    `claude mcp add --scope user UnityMCP --transport http http://127.0.0.1:8080/mcp`
 
-   ※ MCP for Unity v10.1.2 の仕様への回避策（2026-08-22 時点）。
-   Unity起動時に全スコープの登録が削除されるため、毎回必要になる。
-   必ず Unity 起動の「後」に実行すること（先に実行すると消される）。
    パッケージを更新して不要になったら、この項目を削除すること。
 
 5. Claude Codeを起動
