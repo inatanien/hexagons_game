@@ -258,10 +258,19 @@ Claude Code は
 1. Unityを起動
 2. プロジェクトを開く
 3. UnityMCPサーバーが起動していることを確認
-4. Claude Codeを起動
-5. `git log --oneline -10`
-6. `git status`
-7. UnityMCPで以下を確認
+4. userスコープへ再登録（Unity起動のたびに必要）
+
+   `claude mcp add --scope user UnityMCP --transport http http://127.0.0.1:8080/mcp`
+
+   ※ MCP for Unity v10.1.2 の仕様への回避策（2026-08-22 時点）。
+   Unity起動時に全スコープの登録が削除されるため、毎回必要になる。
+   必ず Unity 起動の「後」に実行すること（先に実行すると消される）。
+   パッケージを更新して不要になったら、この項目を削除すること。
+
+5. Claude Codeを起動
+6. `git log --oneline -10`
+7. `git status`
+8. UnityMCPで以下を確認
    - シーン名
    - Hierarchy
    - Consoleエラー
