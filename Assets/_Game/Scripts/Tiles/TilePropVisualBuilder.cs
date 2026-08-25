@@ -111,9 +111,8 @@ namespace ElfVillage.Tiles
                                           assignedOffsets[i], assignedSeeds[i], root.transform, tileHeight);
                         break;
                     case TilePropType.House:
-                        // SpawnHouseはpropCountを使わない単一形状のため要素ごとに1棟だけ生成する
-                        // （実配置のSpawnSingleElementPropsと同じ考え方）。
-                        HexTile.SpawnHouseStatic(root.transform, tileHeight);
+                        // 家は座標シードで4〜6軒を決定論的に置く。実配置と同じメソッドを通す
+                        HexTile.SpawnHouseStatic(type, root.transform, tileHeight, coord);
                         break;
                     case TilePropType.Flower:
                         SpawnFlowerElement(variant, counts[i], coord, i, elements.Count,

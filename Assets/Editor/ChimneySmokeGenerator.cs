@@ -86,8 +86,10 @@ namespace ElfVillage.Editor
             vel.enabled = true;
             vel.space = ParticleSystemSimulationSpace.World;
             // 真上に昇らせたいので横方向の風は入れない
-            vel.x = new ParticleSystem.MinMaxCurve(0f);
-            vel.z = new ParticleSystem.MinMaxCurve(0f);
+            // Unity は3軸とも同じモードであることを要求するので、
+            // 横を固定したい場合も範囲モード(min==max)で揃える
+            vel.x = Curve(0f, 0f);
+            vel.z = Curve(0f, 0f);
             // 縦だけは粒ごとに少し散らす。揃いすぎると板のように見えるため
             vel.y = Curve(0.030f, 0.050f);
 

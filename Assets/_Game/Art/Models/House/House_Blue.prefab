@@ -139,22 +139,6 @@ PrefabInstance:
       propertyPath: m_Name
       value: ChimneySmoke
       objectReference: {fileID: 0}
-    - target: {fileID: 7231226860194871581, guid: b0a3b22fabba52f489eb9f60291353c2, type: 3}
-      propertyPath: InitialModule.startSizeY.minMaxState
-      value: 3
-      objectReference: {fileID: 0}
-    - target: {fileID: 7231226860194871581, guid: b0a3b22fabba52f489eb9f60291353c2, type: 3}
-      propertyPath: InitialModule.startSizeZ.minMaxState
-      value: 3
-      objectReference: {fileID: 0}
-    - target: {fileID: 7231226860194871581, guid: b0a3b22fabba52f489eb9f60291353c2, type: 3}
-      propertyPath: InitialModule.startRotationX.minMaxState
-      value: 3
-      objectReference: {fileID: 0}
-    - target: {fileID: 7231226860194871581, guid: b0a3b22fabba52f489eb9f60291353c2, type: 3}
-      propertyPath: InitialModule.startRotationY.minMaxState
-      value: 3
-      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []

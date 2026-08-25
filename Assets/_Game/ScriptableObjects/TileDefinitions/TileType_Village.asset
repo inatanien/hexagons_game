@@ -31,9 +31,18 @@ MonoBehaviour:
   - {fileID: 0}
   - {fileID: 0}
   - {fileID: 0}
+  houseVariantPrefabs:
+  - {fileID: 2442030544845064299, guid: 1d849fd481f8d6e4ea7aeb30d1a6d836, type: 3}
+  - {fileID: 1375298720430817229, guid: 8e0d1baf272fdc7479bb4ba7074e745a, type: 3}
+  - {fileID: 2821480405128149946, guid: 70239b1ec80414f4c854af08ba468e92, type: 3}
+  - {fileID: 4234768725650714404, guid: 585fda92dca3db2478ff001908d1cdde, type: 3}
+  - {fileID: 8419508618428282458, guid: 71b75e932fcc9e742ae9d2934cc41aa5, type: 3}
+  - {fileID: 459204064621502196, guid: f10d6d9d6b93de24b98a8bbc8f43285c, type: 3}
   billboardSprite: {fileID: 0}
   dividerType: 0
   connectorColor: {r: 0, g: 0, b: 0, a: 0}
   connectorPrefab: {fileID: 0}
   edges: 040000000200000002000000020000000200000002000000
   elements: []
+  landDecoration: {fileID: 0}
+  landDecorationCandidateCount: 0

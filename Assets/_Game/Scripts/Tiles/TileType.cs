@@ -66,6 +66,10 @@ namespace ElfVillage.Tiles
                   "空欄のバリエーションは標準プリミティブの木にフォールバックするので、\n" +
                   "後から実モデルに差し替えるまでは何も設定しなくてよい。")]
         public GameObject[] treeVariantPrefabs = new GameObject[10];
+        [Tooltip("家のバリエーションプレハブ（propType=House のみ有効・各要素空欄可）。\n" +
+                  "村タイル1枚につき4〜6軒が、この中から座標シードで決定論的に選ばれる。\n" +
+                  "すべて空欄ならプリミティブの仮家にフォールバックする。")]
+        public GameObject[] houseVariantPrefabs = new GameObject[6];
         [Tooltip("花畑タイルの Billboard 用スプライト（propType=Flower のみ有効・空欄可）。\n" +
                   "空欄の場合はコードで生成した仮スプライトにフォールバックする。")]
         public Texture2D billboardSprite = null;

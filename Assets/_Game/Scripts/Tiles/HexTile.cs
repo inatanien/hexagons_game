@@ -296,7 +296,7 @@ namespace ElfVillage.Tiles
                 switch (type.propType)
                 {
                     case TilePropType.Tree:   SpawnTrees(type, parent);   break;
-                    case TilePropType.House:  SpawnHouse(parent);         break;
+                    case TilePropType.House:  SpawnHouse(type, parent);   break;
                     case TilePropType.Water:  SpawnWater(type, parent);  break;
                     case TilePropType.Flower: SpawnFlowers(type, parent); break;
                 }
@@ -548,9 +548,7 @@ namespace ElfVillage.Tiles
                     SpawnTreesForVariant(variant, elementPropCount, angleOffsetDeg, precomputed, _elementPropsRoot.transform);
                     break;
                 case TilePropType.House:
-                    // SpawnHouseはpropCountを使わない単一形状のため、要素ごとに1棟だけ生成する
-                    // （既存のHouse生成に「個数」という概念が元々存在しないため、areaWeightは適用しない）。
-                    SpawnHouse(_elementPropsRoot.transform);
+                    SpawnHouse(type, _elementPropsRoot.transform);
                     break;
                 case TilePropType.Flower:
                     SpawnFlowersForVariant(variant, elementPropCount, angleOffsetDeg, precomputed, _elementPropsRoot.transform);
@@ -599,7 +597,7 @@ namespace ElfVillage.Tiles
             switch (type.propType)
             {
                 case TilePropType.Tree:   SpawnTreesStatic(type, parent, tileHeight);               break;
-                case TilePropType.House:  SpawnHouseStatic(parent, tileHeight);                      break;
+                case TilePropType.House:  SpawnHouseStatic(type, parent, tileHeight, default(HexCoord)); break;
                 case TilePropType.Flower: SpawnFlowersStatic(type, parent, tileHeight);             break;
                 case TilePropType.Water:  SpawnWaterPreview(type, parent, outerRadius, tileHeight); break;
             }
@@ -642,21 +640,108 @@ namespace ElfVillage.Tiles
         }
 
         // internal化（Session 11）: TilePropVisualBuilderの複合要素House生成からも再利用するため。
-        internal static void SpawnHouseStatic(Transform parent, float tileHeight)
-        {
-            // ★実配置(SpawnHouse)と同じ式にすること。
-            //   ここがずれると、置く前のゴーストと置いた後の家の高さが食い違う。
-            float ground = HexMeshBuilder.TopY(tileHeight) + PropLiftY;
+        /// <summary>配置ゴースト用。実配置と同じ SpawnHousesShared を通す。</summary>
+        internal static void SpawnHouseStatic(TileType type, Transform parent,
+                                              float tileHeight, HexCoord coord)
+            => SpawnHousesShared(type, parent, tileHeight, coord);
 
+        /// <summary>
+        /// 村タイルに家を4〜6軒配置する。実配置(SpawnHouse)とゴースト(SpawnHouseStatic)の
+        /// 両方がこの1メソッドを通る。以前は同じ処理が2か所に複製されており、
+        /// 片方だけ直して家が0.15浮いた事故が起きているため集約している。
+        /// 軒数・位置・種類・向き・煙の有無はすべて coord から決まるので、
+        /// 同じタイルは何度描画しても同じ見た目になる。
+        /// </summary>
+        internal static void SpawnHousesShared(TileType type, Transform parent,
+                                               float tileHeight, HexCoord coord)
+        {
+            float ground = HexMeshBuilder.TopY(tileHeight) + PropLiftY;
+            int tileSeed = Mathf.Abs(coord.q * 92821 + coord.r * 68917 + 13);
+            int count    = HouseCountMin + tileSeed % (HouseCountMax - HouseCountMin + 1);
+            float baseRotation = coord.q * 23f + coord.r * 37f;   // タイルごとに村の向きをずらす
+
+            var smokers = new List<ParticleSystem>();
+
+            // 1軒を中央に、残りを円環へ均等に割り振る。こうすると軒数が変わっても
+            // タイルの片側だけが空くことがなく、村としてまとまって見える。
+            int ringCount = count - 1;
+
+            for (int i = 0; i < count; i++)
+            {
+                int seed = Mathf.Abs(coord.q * 92821 + coord.r * 68917 + i * 40361);
+
+                Vector3 offset;
+                if (i == 0)
+                {
+                    // 中央の1軒。真ん中すぎると人工的なので少しだけずらす
+                    float jr = ((seed % 21) - 10) / 100f;
+                    float ja = (seed % 360) * Mathf.Deg2Rad;
+                    offset = new Vector3(Mathf.Cos(ja) * jr, 0f, Mathf.Sin(ja) * jr);
+                }
+                else
+                {
+                    int   k      = i - 1;
+                    float angle  = (k * 360f / ringCount + baseRotation + (seed % 17) - 8f) * Mathf.Deg2Rad;
+                    // 環の半径も少し揺らして、円周に並んだ機械的な見た目を崩す
+                    float radius = HouseMaxRadius * (0.88f + ((seed / 7) % 25) / 100f);
+                    offset = new Vector3(Mathf.Cos(angle) * radius, 0f, Mathf.Sin(angle) * radius);
+                }
+
+                GameObject prefab = PickTreeVariantFrom(type != null ? type.houseVariantPrefabs : null,
+                                                        seed, out int variantIndex);
+                if (prefab == null)
+                {
+                    // プレハブ未設定なら従来のプリミティブ仮家に落とす（挙動維持）
+                    SpawnPrimitiveHouse(parent, offset, ground);
+                    continue;
+                }
+
+                var go = Instantiate(prefab, parent);
+                go.transform.localPosition = offset + new Vector3(0f, ground, 0f);
+                go.transform.localRotation = Quaternion.Euler(0f, seed % 360, 0f);
+                // 一律だと並びが機械的に見えるので、0.7倍を基準に±6%だけ散らす
+                go.transform.localScale *= HouseScale * (0.94f + (seed % 13) / 100f);
+                RemoveCollidersRecursive(go);
+
+                var ps = go.GetComponentInChildren<ParticleSystem>(true);
+                if (ps != null) smokers.Add(ps);
+            }
+
+            LimitSmoke(smokers, tileSeed);
+        }
+
+        /// <summary>
+        /// 煙を出す家をタイルごとに1〜2軒へ絞る。全戸から煙が上がるのは不自然なうえ、
+        /// 村タイルが増えるとパーティクルが数百個になって重くなるため。
+        /// 破棄せず非アクティブにするのは、エディットモードでの Destroy を避けるため。
+        /// </summary>
+        private static void LimitSmoke(List<ParticleSystem> smokers, int tileSeed)
+        {
+            if (smokers.Count == 0) return;
+            int keep  = 1 + (tileSeed / 7) % 2;              // 1軒 or 2軒
+            int start = (tileSeed / 11) % smokers.Count;     // どの家が焚いているかもタイルごとに変える
+
+            for (int i = 0; i < smokers.Count; i++)
+            {
+                bool on = false;
+                for (int k = 0; k < keep; k++)
+                    if (i == (start + k) % smokers.Count) on = true;
+                if (!on) smokers[i].gameObject.SetActive(false);
+            }
+        }
+
+        /// <summary>プレハブ未設定時のフォールバック。従来のCube2個の仮家。</summary>
+        private static void SpawnPrimitiveHouse(Transform parent, Vector3 offset, float ground)
+        {
             var body = GameObject.CreatePrimitive(PrimitiveType.Cube);
             body.transform.SetParent(parent);
-            body.transform.localPosition = new Vector3(0f, ground + 0.22f, 0f);
+            body.transform.localPosition = offset + new Vector3(0f, ground + 0.22f, 0f);
             body.transform.localScale    = new Vector3(0.52f, 0.44f, 0.52f);
             SetPropMaterial(body, new Color(0.90f, 0.82f, 0.65f));
 
             var roof = GameObject.CreatePrimitive(PrimitiveType.Cube);
             roof.transform.SetParent(parent);
-            roof.transform.localPosition = new Vector3(0f, ground + 0.58f, 0f);
+            roof.transform.localPosition = offset + new Vector3(0f, ground + 0.58f, 0f);
             roof.transform.localScale    = new Vector3(0.62f, 0.16f, 0.62f);
             roof.transform.localRotation = Quaternion.Euler(0f, 45f, 0f);
             SetPropMaterial(roof, new Color(0.68f, 0.22f, 0.12f));
@@ -1059,6 +1144,18 @@ namespace ElfVillage.Tiles
         //   （以前の1.50では、タイルごとに花の無い縁が見えていた）
         internal const float FlowerMaxRadius      = 1.7f;
 
+        // 家は木や花より背が高く面積も大きいので、散らす半径は控えめにする。
+        // ★六角形の寸法(outerRadius=2.0): 角まで2.0、辺の中点まで約1.73。
+        //   1.25 なら 0.7倍に縮めた家(幅0.5〜0.8)が隣タイルへはみ出さない。
+        internal const float HouseMaxRadius        = 1.25f;
+        // 中央に1軒だけ置き、残りは円環に均等配置する。黄金角スパイラルは
+        // 木や花のように数が多いと綺麗だが、4〜6軒だと片側に寄って見える。
+        internal const float HouseInnerRadiusRatio = 0.0f;
+        // 実寸のままだと6軒でタイルが埋まるため縮小する。
+        internal const float HouseScale            = 0.85f;
+        internal const int   HouseCountMin         = 4;
+        internal const int   HouseCountMax         = 6;
+
         // 花畑タイルはピクミンブルーム方式: 地面テクスチャ（TileType.groundTexture）に
         // 花畑の密な模様を描いておき、その上に Billboard を propCount 枚だけ「点在」させて
         // 花が沢山あるように錯覚させる。以前の草・低い植物・花・小石の大量プロップ配置は廃止。
@@ -1295,25 +1392,8 @@ namespace ElfVillage.Tiles
             return tex;
         }
 
-        private void SpawnHouse(Transform parent)
-        {
-            // ★接地はメッシュの実際の上面を基準にする（木・花と同じ規則）。
-            //   長らく `tileHeight + 0.01` を地面として使っており、家が0.15浮いていた。
-            float ground = HexMeshBuilder.TopY(tileHeight) + PropLiftY;
-
-            var body = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            body.transform.SetParent(parent);
-            body.transform.localPosition = new Vector3(0f, ground + 0.22f, 0f);
-            body.transform.localScale    = new Vector3(0.52f, 0.44f, 0.52f);
-            SetPropMaterial(body, new Color(0.90f, 0.82f, 0.65f));
-
-            var roof = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            roof.transform.SetParent(parent);
-            roof.transform.localPosition = new Vector3(0f, ground + 0.58f, 0f);
-            roof.transform.localScale    = new Vector3(0.62f, 0.16f, 0.62f);
-            roof.transform.localRotation = Quaternion.Euler(0f, 45f, 0f);
-            SetPropMaterial(roof, new Color(0.68f, 0.22f, 0.12f));
-        }
+        private void SpawnHouse(TileType type, Transform parent)
+            => SpawnHousesShared(type, parent, tileHeight, Data.coord);
 
         private void SpawnWater(TileType type, Transform parent)
         {
