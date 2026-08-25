@@ -26,6 +26,9 @@ namespace ElfVillage.Editor
             GameObject go = new GameObject("ChimneySmoke");
             var ps = go.AddComponent<ParticleSystem>();
             Configure(ps);
+            // 昼夜で煙を切り替える。中央管理でなく煙自身に持たせるのは、
+            // 煙がタイル配置時に家ごと動的生成されるため
+            go.AddComponent<ElfVillage.Tiles.ChimneySmokeTimeOfDay>();
 
             var pr = go.GetComponent<ParticleSystemRenderer>();
             pr.renderMode = ParticleSystemRenderMode.Billboard;

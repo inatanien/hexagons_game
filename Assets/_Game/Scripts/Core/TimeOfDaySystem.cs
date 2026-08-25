@@ -72,11 +72,20 @@ namespace ElfVillage.Core
 
         private TimeOfDayEvent.Phase _currentPhase = TimeOfDayEvent.Phase.Morning;
 
+        /// <summary>
+        /// 現在の時間帯。TimeOfDayEvent は切り替わった瞬間にしか飛ばないため、
+        /// 実行中に生成されたオブジェクト（タイル上の家など）が初期状態を
+        /// 合わせるために参照する。読み取り専用。
+        /// </summary>
+        public static TimeOfDayEvent.Phase Current { get; private set; }
+            = TimeOfDayEvent.Phase.Morning;
+
         // ランタイムで生成するブレンド用マテリアル（シーンには保存しない）
         private Material _blendMat;
 
         private void Start()
         {
+            Current = _currentPhase;
             if (_sun == null)
                 _sun = FindFirstObjectByType<Light>();
 
@@ -124,6 +133,7 @@ namespace ElfVillage.Core
                 var next = NextPhase(_currentPhase);
                 yield return StartCoroutine(TransitionTo(GetSettings(next), next));
                 _currentPhase = next;
+                Current = _currentPhase;
                 EventBus.Publish(new TimeOfDayEvent(_currentPhase));
             }
         }

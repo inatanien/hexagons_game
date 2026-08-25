@@ -41,7 +41,8 @@ namespace ElfVillage.Tiles
             }
             _originalEmission = _houseMaterial.GetColor(EmissionColorId);
             _hasOriginal = true;
-            _current = _dayIntensity;
+            // 途中から始まっても暗いままにならないよう、現在の時間帯に合わせる
+            _current = TargetFor(TimeOfDaySystem.Current);
             Apply(_current);
         }
 
