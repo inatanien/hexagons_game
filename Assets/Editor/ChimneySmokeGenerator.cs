@@ -52,8 +52,8 @@ namespace ElfVillage.Editor
             main.duration = 5f;
             main.loop = true;
             // 立ちのぼって薄れるまでの時間。長いほどゆったり見える
-            main.startLifetime = new ParticleSystem.MinMaxCurve(2.6f, 4.2f);
-            main.startSpeed = new ParticleSystem.MinMaxCurve(0.06f, 0.12f);
+            main.startLifetime = new ParticleSystem.MinMaxCurve(4.0f, 6.4f);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(0.035f, 0.075f);
             main.startSize = new ParticleSystem.MinMaxCurve(0.05f, 0.09f);
             main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
             main.startColor = new ParticleSystem.MinMaxGradient(
@@ -63,13 +63,13 @@ namespace ElfVillage.Editor
             main.gravityModifier = new ParticleSystem.MinMaxCurve(-0.015f);
             // 家が動いても煙は空間に取り残される。World にしないと家に貼り付く
             main.simulationSpace = ParticleSystemSimulationSpace.World;
-            main.maxParticles = 140;
+            main.maxParticles = 180;
             main.playOnAwake = true;
 
             var em = ps.emission;
             em.enabled = true;
             // 粒が重なって初めて煙の塊に見える。少ないと点々に見えてしまう
-            em.rateOverTime = new ParticleSystem.MinMaxCurve(18f);
+            em.rateOverTime = new ParticleSystem.MinMaxCurve(13f);
 
             var sh = ps.shape;
             sh.enabled = true;
@@ -82,9 +82,9 @@ namespace ElfVillage.Editor
             var vel = ps.velocityOverLifetime;
             vel.enabled = true;
             vel.space = ParticleSystemSimulationSpace.World;
-            vel.x = Curve(0f, 0.10f);
-            vel.y = Curve(0.03f, 0.07f);
-            vel.z = Curve(0f, 0.035f);
+            vel.x = Curve(0f, 0.075f);
+            vel.y = Curve(0.018f, 0.042f);
+            vel.z = Curve(0f, 0.026f);
 
             // 上がるにつれて膨らむ。煙らしさの大半はこれで決まる
             var size = ps.sizeOverLifetime;
@@ -118,14 +118,14 @@ namespace ElfVillage.Editor
             var rot = ps.rotationOverLifetime;
             rot.enabled = true;
             rot.separateAxes = false;
-            rot.z = new ParticleSystem.MinMaxCurve(-0.5f, 0.5f);
+            rot.z = new ParticleSystem.MinMaxCurve(-0.3f, 0.3f);
 
             // 乱流。これがないと一直線に上がって不自然になる
             var noise = ps.noise;
             noise.enabled = true;
             noise.strength = new ParticleSystem.MinMaxCurve(0.05f);
             noise.frequency = 0.35f;
-            noise.scrollSpeed = new ParticleSystem.MinMaxCurve(0.12f);
+            noise.scrollSpeed = new ParticleSystem.MinMaxCurve(0.07f);
             noise.damping = true;
             noise.quality = ParticleSystemNoiseQuality.High;
             noise.octaveCount = 2;
