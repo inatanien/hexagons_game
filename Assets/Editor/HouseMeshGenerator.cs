@@ -308,25 +308,14 @@ namespace ElfVillage.Editor
 
         private static void BuildDoor(float hd, float wt)
         {
-            float dw = 0.058f;       // 縦長に見えるよう幅は控えめ
-            float dh = wt * 0.80f;   // 壁の8割まで立ち上げる
+            float dw = 0.058f;
+            // アーチは付けず、以前カーブが始まっていた高さまでの矩形にする
+            float dh = wt * 0.80f * 0.68f;
             float z = hd + 0.006f;   // 壁から少し手前に出して面が重ならないようにする
-            float archStart = dh * 0.68f;
-            const int seg = 5;       // アーチの分割数。増やすほど滑らかだがポリゴンが増える
 
             Quad(new Vector3(-dw, 0, z), new Vector3(dw, 0, z),
-                 new Vector3(dw, archStart, z), new Vector3(-dw, archStart, z),
+                 new Vector3(dw, dh, z), new Vector3(-dw, dh, z),
                  SwDoor, Vector3.forward);
-
-            Vector3 c = new Vector3(0, archStart, z);
-            for (int i = 0; i < seg; i++)
-            {
-                float a0 = Mathf.PI * i / seg;
-                float a1 = Mathf.PI * (i + 1) / seg;
-                Vector3 p0 = c + new Vector3(-Mathf.Cos(a0) * dw, Mathf.Sin(a0) * (dh - archStart), 0);
-                Vector3 p1 = c + new Vector3(-Mathf.Cos(a1) * dw, Mathf.Sin(a1) * (dh - archStart), 0);
-                Tri(c, p0, p1, SwDoor, Vector3.forward);
-            }
         }
 
         /// <summary>枠とガラスの2枚重ねで窓を1つ置く。right/up はその壁面上の向き。</summary>
@@ -351,9 +340,10 @@ namespace ElfVillage.Editor
             float y = wt * 0.60f;
             float o = 0.006f;
 
-            // 左右の側面に正方形の窓を1つずつ（従来どおり）
+            // 側面の窓。扉を正面として右側(+X)だけ大きくする
             float sq = 0.055f;
-            AddWindow(new Vector3(hw + o, y, 0), Vector3.forward, Vector3.up, sq, sq, Vector3.right);
+            float sqBig = 0.088f;
+            AddWindow(new Vector3(hw + o, y, 0), Vector3.forward, Vector3.up, sqBig, sqBig, Vector3.right);
             AddWindow(new Vector3(-(hw + o), y, 0), Vector3.forward, Vector3.up, sq, sq, Vector3.left);
 
             // 正面は扉の横に1つ
