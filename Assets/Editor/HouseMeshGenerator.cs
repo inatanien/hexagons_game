@@ -1,6 +1,6 @@
-// 役割: 参考画像の家を手続き的にメッシュ生成する。AI生成と違い形・ポリゴン数・向きを完全に制御でき、
-//       色違いや大きさ違いのバリエーションを同じ形状から量産できる。
-//       色は極小のパレットテクスチャ1枚をUVで参照させ、家1軒＝1マテリアル＝1ドローコールに収める。
+// 役割: 家を手続き的にメッシュ生成する。形・ポリゴン数・向きを完全に制御でき、
+//       屋根の色や寸法を変えたバリエーションを同じ仕組みから量産できる。
+//       色は1枚のパレットテクスチャをUVで参照させるため、何種類作ってもマテリアルは1枚のまま。
 using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
@@ -8,7 +8,13 @@ using UnityEngine;
 
 namespace ElfVillage.Editor
 {
-    /// <summary>家の寸法指定。ここを変えるだけでバリエーションが作れる。</summary>
+    public enum RoofType
+    {
+        Gable,    // 切妻（棟がZ軸に走る三角屋根）
+        Pyramid,  // 四角錐（塔向け）
+    }
+
+    /// <summary>家1種類ぶんの指定。寸法・色・付属物をここでまとめて決める。</summary>
     public struct HouseParams
     {
         public float width;        // X 幅（壁の外寸）
@@ -20,6 +26,18 @@ namespace ElfVillage.Editor
         public float roofThick;    // 屋根板の厚み
         public float postSize;     // 隅柱の太さ
 
+        public RoofType roofType;
+        public bool hasChimney;
+        public int windowRows;     // 側面と背面の窓を何段置くか
+        public int sideWindows;    // 側面1枚あたりの窓の数
+        public int windowSeed;     // 窓の位置と大きさのばらつきを決める種
+
+        public int swRoof;         // 屋根の上面
+        public int swRoofSide;     // 屋根の小口・裏面（一段暗い色）
+        public int swWall;
+        public int swPost;
+
+        /// <summary>標準の家。他のバリエーションはこれを基準に差分だけ変える。</summary>
         public static HouseParams Default
         {
             get
@@ -33,6 +51,15 @@ namespace ElfVillage.Editor
                 p.gableOut = 0.06f;
                 p.roofThick = 0.035f;
                 p.postSize = 0.055f;
+                p.roofType = RoofType.Gable;
+                p.hasChimney = true;
+                p.windowRows = 1;
+                p.sideWindows = 1;
+                p.windowSeed = 1;
+                p.swRoof = HouseMeshGenerator.SwRoofBlue;
+                p.swRoofSide = HouseMeshGenerator.SwRoofBlueSide;
+                p.swWall = HouseMeshGenerator.SwWallCream;
+                p.swPost = HouseMeshGenerator.SwPostBrown;
                 return p;
             }
         }
@@ -41,36 +68,118 @@ namespace ElfVillage.Editor
     public static class HouseMeshGenerator
     {
         // パレット上の色番号。UVはこの番号のマスの中心を指す
-        private const int SwWall = 0, SwPost = 1, SwRoof = 2, SwRoofSide = 3;
-        private const int SwChimney = 4, SwDoor = 5, SwGlass = 6, SwFrame = 7;
+        public const int SwWallCream = 0, SwPostBrown = 1, SwRoofBlue = 2, SwRoofBlueSide = 3;
+        public const int SwChimney = 4, SwDoor = 5, SwGlass = 6, SwFrame = 7;
+        public const int SwRoofRed = 8, SwRoofRedSide = 9, SwRoofMoss = 10, SwRoofMossSide = 11;
+        public const int SwRoofOchre = 12, SwRoofOchreSide = 13, SwRoofWood = 14, SwRoofWoodSide = 15;
+        public const int SwRoofSlate = 16, SwRoofSlateSide = 17, SwWallWood = 18, SwWallStone = 19;
 
         private static readonly Color[] Palette =
         {
-            new Color32(0xEF, 0xE3, 0xC4, 0xFF), // 0 壁（クリーム色の漆喰）
-            new Color32(0x9A, 0x63, 0x35, 0xFF), // 1 柱（温かみのある茶）
-            new Color32(0x1F, 0x63, 0xD2, 0xFF), // 2 屋根（明るい青）
-            new Color32(0x18, 0x4F, 0xA8, 0xFF), // 3 屋根の小口（陰になる面を一段暗く）
-            new Color32(0xDC, 0xCF, 0xAC, 0xFF), // 4 煙突（明るい石材）
-            new Color32(0x7B, 0x4A, 0x22, 0xFF), // 5 扉
-            new Color32(0x6F, 0xA8, 0xDC, 0xFF), // 6 窓ガラス
-            new Color32(0x8B, 0x55, 0x2A, 0xFF), // 7 窓枠
+            new Color32(0xEF, 0xE3, 0xC4, 0xFF), //  0 壁（クリーム色の漆喰）
+            new Color32(0x9A, 0x63, 0x35, 0xFF), //  1 柱（温かみのある茶）
+            new Color32(0x1F, 0x63, 0xD2, 0xFF), //  2 屋根 青
+            new Color32(0x18, 0x4F, 0xA8, 0xFF), //  3 屋根 青（小口）
+            new Color32(0xDC, 0xCF, 0xAC, 0xFF), //  4 煙突（明るい石材）
+            new Color32(0x7B, 0x4A, 0x22, 0xFF), //  5 扉
+            new Color32(0x6F, 0xA8, 0xDC, 0xFF), //  6 窓ガラス
+            new Color32(0x8B, 0x55, 0x2A, 0xFF), //  7 窓枠
+            new Color32(0xC8, 0x3E, 0x36, 0xFF), //  8 屋根 赤
+            new Color32(0xA0, 0x2E, 0x28, 0xFF), //  9 屋根 赤（小口）
+            new Color32(0x5E, 0x8C, 0x42, 0xFF), // 10 屋根 苔緑
+            new Color32(0x47, 0x6D, 0x32, 0xFF), // 11 屋根 苔緑（小口）
+            new Color32(0xE0, 0x9B, 0x35, 0xFF), // 12 屋根 黄土
+            new Color32(0xB5, 0x7A, 0x26, 0xFF), // 13 屋根 黄土（小口）
+            new Color32(0x6B, 0x4A, 0x30, 0xFF), // 14 屋根 焦茶（納屋）
+            new Color32(0x53, 0x39, 0x25, 0xFF), // 15 屋根 焦茶（小口）
+            new Color32(0x74, 0x7C, 0x88, 0xFF), // 16 屋根 石板（塔）
+            new Color32(0x5A, 0x61, 0x6B, 0xFF), // 17 屋根 石板（小口）
+            new Color32(0xB8, 0x8A, 0x55, 0xFF), // 18 壁（板張り・納屋）
+            new Color32(0xC9, 0xC4, 0xB6, 0xFF), // 19 壁（石積み・塔）
         };
 
         private const int SwatchPx = 16;   // 1色あたりのピクセル数
-        private const int GridCols = 4;    // パレットの列数
+        private const int GridCols = 8;    // パレットの列数（8×8＝64マス）
 
         private static List<Vector3> _v;
         private static List<Vector3> _n;
         private static List<Vector2> _uv;
         private static List<int> _t;
 
-        [MenuItem("Tools/精霊樹の森/家メッシュを生成")]
-        public static void GenerateDefault()
+        [MenuItem("Tools/精霊樹の森/家メッシュを生成（全6種）")]
+        public static void GenerateAll()
         {
-            Generate(HouseParams.Default, "House_Cream_Blue");
+            foreach (var kv in Variants())
+                Generate(kv.Value, kv.Key);
+            AssetDatabase.SaveAssets();
+            Debug.Log("[HouseMeshGenerator] 全6種の生成が完了しました。");
         }
 
-        /// <summary>メッシュ・マテリアル・パレット・プレハブを一式書き出す。</summary>
+        /// <summary>6種類の指定。標準からの差分だけ書く。</summary>
+        public static Dictionary<string, HouseParams> Variants()
+        {
+            var list = new Dictionary<string, HouseParams>();
+
+            // 1) 標準：青屋根の家
+            list["House_Blue"] = HouseParams.Default;
+
+            // 2) 赤屋根の家（形は標準と同じ、色だけ差し替え）
+            var red = HouseParams.Default;
+            red.swRoof = SwRoofRed; red.swRoofSide = SwRoofRedSide;
+            red.sideWindows = 2; red.windowSeed = 2;   // 青屋根と形が同じなので窓で差を付ける
+            list["House_Red"] = red;
+
+            // 3) 苔屋根の小屋：小さく低く、煙突なし。盤面の隙間を埋める役
+            var hut = HouseParams.Default;
+            hut.width = 0.44f; hut.depth = 0.50f;
+            hut.wallHeight = 0.30f; hut.roofRise = 0.20f;
+            hut.eaveOut = 0.06f; hut.gableOut = 0.05f;
+            hut.postSize = 0.045f;
+            hut.hasChimney = false;
+            hut.swRoof = SwRoofMoss; hut.swRoofSide = SwRoofMossSide;
+            hut.windowSeed = 3;
+            list["Hut_Moss"] = hut;
+
+            // 4) 背の高い家：間口を狭め壁を高く。窓を上下2段にして二階建てに見せる
+            var tall = HouseParams.Default;
+            tall.width = 0.50f; tall.depth = 0.58f;
+            tall.wallHeight = 0.64f; tall.roofRise = 0.32f;
+            tall.eaveOut = 0.06f;
+            tall.windowRows = 2;
+            tall.swRoof = SwRoofOchre; tall.swRoofSide = SwRoofOchreSide;
+            tall.windowSeed = 4;
+            list["House_Tall"] = tall;
+
+            // 5) 横長の納屋：幅広で低く、屋根が大きい。壁は板張り
+            var barn = HouseParams.Default;
+            barn.width = 0.92f; barn.depth = 0.60f;
+            barn.wallHeight = 0.34f; barn.roofRise = 0.30f;
+            barn.eaveOut = 0.10f; barn.gableOut = 0.07f;
+            barn.postSize = 0.065f;
+            barn.hasChimney = false;
+            barn.swRoof = SwRoofWood; barn.swRoofSide = SwRoofWoodSide;
+            barn.swWall = SwWallWood;
+            barn.sideWindows = 2; barn.windowSeed = 5;  // 側面が長いので2枚並べる
+            list["Barn_Wide"] = barn;
+
+            // 6) 塔：細く高く、四角錐の屋根。窓は3段。盤面の目印になる強いシルエット
+            var tower = HouseParams.Default;
+            tower.width = 0.36f; tower.depth = 0.36f;
+            tower.wallHeight = 0.92f; tower.roofRise = 0.26f;
+            tower.eaveOut = 0.055f; tower.gableOut = 0.055f;
+            tower.postSize = 0.05f;
+            tower.roofType = RoofType.Pyramid;
+            tower.hasChimney = false;
+            tower.windowRows = 3;
+            tower.swRoof = SwRoofSlate; tower.swRoofSide = SwRoofSlateSide;
+            tower.swWall = SwWallStone;
+            tower.windowSeed = 6;
+            list["Tower_Stone"] = tower;
+
+            return list;
+        }
+
+        /// <summary>メッシュ・マテリアル・パレット・プレハブを書き出す。</summary>
         public static GameObject Generate(HouseParams p, string name,
             string folder = "Assets/_Game/Art/Models/House")
         {
@@ -120,7 +229,6 @@ namespace ElfVillage.Editor
             mat.EnableKeyword("_EMISSION");
             mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
             mat.SetTexture("_EmissionMap", emiAsset);
-            mat.SetColor("_EmissionColor", Color.black); // 初期値は消灯。点灯は実行時に制御する
             EditorUtility.SetDirty(mat);
 
             GameObject go = new GameObject(name);
@@ -139,7 +247,7 @@ namespace ElfVillage.Editor
             prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
 
             Debug.Log("[HouseMeshGenerator] " + name + ": " + (mesh.triangles.Length / 3)
-                      + " tris, " + mesh.vertexCount + " verts -> " + prefabPath);
+                      + " tris, " + mesh.vertexCount + " verts");
             return prefab;
         }
 
@@ -152,15 +260,16 @@ namespace ElfVillage.Editor
 
             float hw = p.width * 0.5f;
             float hd = p.depth * 0.5f;
-            float wt = p.wallHeight;                // 壁の上端
-            float peak = p.wallHeight + p.roofRise; // 棟の高さ
+            float wt = p.wallHeight;
+            float peak = p.wallHeight + p.roofRise;
 
-            BuildWalls(hw, hd, wt, peak);
-            BuildRoof(p, hw, hd, wt, peak);
+            BuildWalls(p, hw, hd, wt, peak);
+            if (p.roofType == RoofType.Gable) BuildGableRoof(p, hw, hd, wt, peak);
+            else BuildPyramidRoof(p, hw, hd, wt, peak);
             BuildPosts(p, hw, hd, wt);
-            BuildChimney(p, hd, peak);
-            BuildDoor(hd, wt);
-            BuildWindows(hw, hd, wt);
+            if (p.hasChimney) BuildChimney(p, hw, hd, peak);
+            BuildDoor(p, hd, wt);
+            BuildWindows(p, hw, hd, wt);
 
             Mesh mesh = new Mesh();
             mesh.SetVertices(_v);
@@ -233,33 +342,35 @@ namespace ElfVillage.Editor
 
         // ---- 各パーツ ----
 
-        private static void BuildWalls(float hw, float hd, float wt, float peak)
+        private static void BuildWalls(HouseParams p, float hw, float hd, float wt, float peak)
         {
-            // 側面（左右）は矩形
+            int w = p.swWall;
+
             Quad(new Vector3(hw, 0, -hd), new Vector3(hw, 0, hd),
-                 new Vector3(hw, wt, hd), new Vector3(hw, wt, -hd), SwWall, Vector3.right);
+                 new Vector3(hw, wt, hd), new Vector3(hw, wt, -hd), w, Vector3.right);
             Quad(new Vector3(-hw, 0, hd), new Vector3(-hw, 0, -hd),
-                 new Vector3(-hw, wt, -hd), new Vector3(-hw, wt, hd), SwWall, Vector3.left);
-
-            // 正面・背面は矩形＋切妻の三角
+                 new Vector3(-hw, wt, -hd), new Vector3(-hw, wt, hd), w, Vector3.left);
             Quad(new Vector3(-hw, 0, hd), new Vector3(hw, 0, hd),
-                 new Vector3(hw, wt, hd), new Vector3(-hw, wt, hd), SwWall, Vector3.forward);
-            Tri(new Vector3(-hw, wt, hd), new Vector3(hw, wt, hd),
-                new Vector3(0, peak, hd), SwWall, Vector3.forward);
-
+                 new Vector3(hw, wt, hd), new Vector3(-hw, wt, hd), w, Vector3.forward);
             Quad(new Vector3(hw, 0, -hd), new Vector3(-hw, 0, -hd),
-                 new Vector3(-hw, wt, -hd), new Vector3(hw, wt, -hd), SwWall, Vector3.back);
-            Tri(new Vector3(hw, wt, -hd), new Vector3(-hw, wt, -hd),
-                new Vector3(0, peak, -hd), SwWall, Vector3.back);
+                 new Vector3(-hw, wt, -hd), new Vector3(hw, wt, -hd), w, Vector3.back);
+
+            // 切妻のときだけ、前後の壁に三角を足して棟まで塞ぐ
+            if (p.roofType == RoofType.Gable)
+            {
+                Tri(new Vector3(-hw, wt, hd), new Vector3(hw, wt, hd),
+                    new Vector3(0, peak, hd), w, Vector3.forward);
+                Tri(new Vector3(hw, wt, -hd), new Vector3(-hw, wt, -hd),
+                    new Vector3(0, peak, -hd), w, Vector3.back);
+            }
         }
 
-        private static void BuildRoof(HouseParams p, float hw, float hd, float wt, float peak)
+        private static void BuildGableRoof(HouseParams p, float hw, float hd, float wt, float peak)
         {
-            float ez = hd + p.gableOut;   // 破風側の端
-            float ex = hw + p.eaveOut;    // 軒先の端
-            float ey = wt - 0.02f;        // 軒先の高さ（壁より少し下げて庇らしく）
-            float th = p.roofThick;
-            Vector3 dn = new Vector3(0, -th, 0);
+            float ez = hd + p.gableOut;
+            float ex = hw + p.eaveOut;
+            float ey = wt - 0.02f;
+            Vector3 dn = new Vector3(0, -p.roofThick, 0);
 
             for (int s = 0; s < 2; s++)
             {
@@ -270,15 +381,47 @@ namespace ElfVillage.Editor
                 Vector3 eB = new Vector3(sx * ex, ey, -ez);
                 Vector3 rF2 = rF + dn, rB2 = rB + dn, eF2 = eF + dn, eB2 = eB + dn;
 
-                Vector3 upOut = new Vector3(sx, 1f, 0f);   // 勾配面は上＋外向き
+                Vector3 upOut = new Vector3(sx, 1f, 0f);
                 Vector3 dnOut = new Vector3(-sx, -1f, 0f);
                 Vector3 sideOut = new Vector3(sx, 0f, 0f);
 
-                Quad(rB, rF, eF, eB, SwRoof, upOut);          // 上面
-                Quad(eB2, eF2, rF2, rB2, SwRoofSide, dnOut);  // 裏面
-                Quad(eF, eF2, eB2, eB, SwRoofSide, sideOut);  // 軒先の小口
-                Quad(rF, eF, eF2, rF2, SwRoofSide, Vector3.forward); // 破風（前）
-                Quad(eB, eB2, rB2, rB, SwRoofSide, Vector3.back);    // 破風（後）
+                Quad(rB, rF, eF, eB, p.swRoof, upOut);
+                Quad(eB2, eF2, rF2, rB2, p.swRoofSide, dnOut);
+                Quad(eF, eF2, eB2, eB, p.swRoofSide, sideOut);
+                Quad(rF, eF, eF2, rF2, p.swRoofSide, Vector3.forward);
+                Quad(eB, eB2, rB2, rB, p.swRoofSide, Vector3.back);
+            }
+        }
+
+        /// <summary>四角錐の屋根。塔のように四方が同じ形の建物に使う。</summary>
+        private static void BuildPyramidRoof(HouseParams p, float hw, float hd, float wt, float peak)
+        {
+            float ex = hw + p.eaveOut;
+            float ez = hd + p.gableOut;
+            float ey = wt - 0.02f;
+            float th = p.roofThick;
+
+            Vector3 apex = new Vector3(0, peak, 0);
+            Vector3 apex2 = apex + new Vector3(0, -th, 0);
+            Vector3[] e =
+            {
+                new Vector3( ex, ey,  ez),
+                new Vector3(-ex, ey,  ez),
+                new Vector3(-ex, ey, -ez),
+                new Vector3( ex, ey, -ez),
+            };
+            Vector3[] e2 = new Vector3[4];
+            for (int i = 0; i < 4; i++) e2[i] = e[i] + new Vector3(0, -th, 0);
+
+            for (int i = 0; i < 4; i++)
+            {
+                int j = (i + 1) % 4;
+                Vector3 mid = (e[i] + e[j]) * 0.5f;
+                Vector3 outward = new Vector3(mid.x, 0.6f, mid.z).normalized;
+                Tri(e[i], e[j], apex, p.swRoof, outward);          // 上面
+                Tri(e2[j], e2[i], apex2, p.swRoofSide, -outward);  // 裏面
+                Quad(e[i], e2[i], e2[j], e[j], p.swRoofSide,
+                     new Vector3(mid.x, 0f, mid.z).normalized);    // 軒先の小口
             }
         }
 
@@ -286,33 +429,30 @@ namespace ElfVillage.Editor
         {
             float s = p.postSize;
             float y = wt * 0.5f;
-            // 壁からわずかに外へ出して、柱が浮き出て見えるようにする
             float ox = hw - s * 0.25f;
             float oz = hd - s * 0.25f;
-            Box(new Vector3(ox, y, oz), new Vector3(s, wt, s), SwPost, false);
-            Box(new Vector3(-ox, y, oz), new Vector3(s, wt, s), SwPost, false);
-            Box(new Vector3(ox, y, -oz), new Vector3(s, wt, s), SwPost, false);
-            Box(new Vector3(-ox, y, -oz), new Vector3(s, wt, s), SwPost, false);
+            Box(new Vector3(ox, y, oz), new Vector3(s, wt, s), p.swPost, false);
+            Box(new Vector3(-ox, y, oz), new Vector3(s, wt, s), p.swPost, false);
+            Box(new Vector3(ox, y, -oz), new Vector3(s, wt, s), p.swPost, false);
+            Box(new Vector3(-ox, y, -oz), new Vector3(s, wt, s), p.swPost, false);
         }
 
-        private static void BuildChimney(HouseParams p, float hd, float peak)
+        private static void BuildChimney(HouseParams p, float hw, float hd, float peak)
         {
-            float w = 0.085f;
+            float w = Mathf.Min(0.085f, p.width * 0.16f);
             float top = peak + 0.13f;
-            float z = hd * 0.42f;
-            // 屋根を貫くので、下端は壁の高さまで伸ばして隙間を作らない
             float bottom = p.wallHeight * 0.5f;
-            Box(new Vector3(0.10f, (top + bottom) * 0.5f, -z),
+            // 屋根を貫くので、下端は壁の途中まで伸ばして隙間を作らない
+            Box(new Vector3(hw * 0.32f, (top + bottom) * 0.5f, -hd * 0.42f),
                 new Vector3(w, top - bottom, w), SwChimney, false);
         }
 
-        private static void BuildDoor(float hd, float wt)
+        private static void BuildDoor(HouseParams p, float hd, float wt)
         {
-            float dw = 0.058f;
-            // アーチは付けず、以前カーブが始まっていた高さまでの矩形にする
-            float dh = wt * 0.80f * 0.68f;
-            float z = hd + 0.006f;   // 壁から少し手前に出して面が重ならないようにする
-
+            // 扉は建物の大きさに関係なく全種で共通。人が通る寸法は変わらないため
+            const float dw = 0.058f;
+            const float dh = 0.218f;
+            float z = hd + 0.006f;
             Quad(new Vector3(-dw, 0, z), new Vector3(dw, 0, z),
                  new Vector3(dw, dh, z), new Vector3(-dw, dh, z),
                  SwDoor, Vector3.forward);
@@ -323,9 +463,8 @@ namespace ElfVillage.Editor
                                       float halfW, float halfH, Vector3 outward)
         {
             Vector3 o = outward.normalized * 0.006f;
-            Vector3 fc = center;
-            Quad(fc - right * halfW - up * halfH, fc + right * halfW - up * halfH,
-                 fc + right * halfW + up * halfH, fc - right * halfW + up * halfH,
+            Quad(center - right * halfW - up * halfH, center + right * halfW - up * halfH,
+                 center + right * halfW + up * halfH, center - right * halfW + up * halfH,
                  SwFrame, outward);
 
             const float g = 0.68f;   // ガラスは枠より一回り小さく、さらに手前へ
@@ -335,25 +474,118 @@ namespace ElfVillage.Editor
                  SwGlass, outward);
         }
 
-        private static void BuildWindows(float hw, float hd, float wt)
+        /// <summary>種から決まる決定的な擬似乱数。再生成しても毎回同じ配置になる。</summary>
+        private static float Rand(int seed, int salt, float min, float max)
         {
-            float y = wt * 0.60f;
-            float o = 0.006f;
+            unchecked
+            {
+                uint h = (uint)(seed * 73856093) ^ (uint)(salt * 19349663);
+                h ^= h >> 13; h *= 0x85ebca6b; h ^= h >> 16;
+                return min + (max - min) * ((h & 0xFFFFFF) / (float)0xFFFFFF);
+            }
+        }
 
-            // 側面の窓。扉を正面として右側(+X)だけ大きくする
-            float sq = 0.055f;
-            float sqBig = 0.088f;
-            AddWindow(new Vector3(hw + o, y, 0), Vector3.forward, Vector3.up, sqBig, sqBig, Vector3.right);
-            AddWindow(new Vector3(-(hw + o), y, 0), Vector3.forward, Vector3.up, sq, sq, Vector3.left);
+        /// <summary>壁の上に置く窓1枚ぶん。u は壁に沿った位置、v は高さ。</summary>
+        private struct WinRect
+        {
+            public float u, v, hu, hv;
+            public WinRect(float u, float v, float hu, float hv)
+            { this.u = u; this.v = v; this.hu = hu; this.hv = hv; }
+        }
 
-            // 正面は扉の横に1つ
-            AddWindow(new Vector3(hw * 0.52f, y, hd + o), Vector3.right, Vector3.up, sq, sq, Vector3.forward);
+        /// <summary>枠が重なった窓は、大きいほうだけを残して1枚にまとめる。</summary>
+        private static List<WinRect> MergeOverlaps(List<WinRect> list)
+        {
+            // 面積の大きい順に確定させ、既に置いた窓と重なるものは捨てる
+            list.Sort((a, b) => (b.hu * b.hv).CompareTo(a.hu * a.hv));
+            var kept = new List<WinRect>();
+            foreach (var w in list)
+            {
+                bool hit = false;
+                for (int i = 0; i < kept.Count; i++)
+                {
+                    var k = kept[i];
+                    if (Mathf.Abs(w.u - k.u) < w.hu + k.hu && Mathf.Abs(w.v - k.v) < w.hv + k.hv)
+                    { hit = true; break; }
+                }
+                if (!hit) kept.Add(w);
+            }
+            return kept;
+        }
 
-            // 背面は何も無かったので、横長の窓を2つ追加する
-            float bw = 0.095f, bh = 0.042f;
-            float bx = hw * 0.45f;
-            AddWindow(new Vector3(bx, y, -(hd + o)), Vector3.right, Vector3.up, bw, bh, Vector3.back);
-            AddWindow(new Vector3(-bx, y, -(hd + o)), Vector3.right, Vector3.up, bw, bh, Vector3.back);
+        private static void EmitWall(List<WinRect> list, Vector3 planePoint,
+                                     Vector3 rightAxis, Vector3 outward)
+        {
+            foreach (var w in MergeOverlaps(list))
+                AddWindow(planePoint + rightAxis * w.u + Vector3.up * w.v,
+                          rightAxis, Vector3.up, w.hu, w.hv, outward);
+        }
+
+        private static void BuildWindows(HouseParams p, float hw, float hd, float wt)
+        {
+            const float o = 0.006f;
+            int rows = Mathf.Max(1, p.windowRows);
+            int count = Mathf.Max(1, p.sideWindows);
+            float baseSq = Mathf.Min(0.055f, wt / (rows * 2.6f));
+            int seed = p.windowSeed;
+            int salt = 0;
+
+            // 隅柱に食い込まないよう、窓を置ける範囲を先に決めておく
+            float zRoom = hd - p.postSize * 0.9f;
+            float xRoom = hw - p.postSize * 0.9f;
+
+            var right = new List<WinRect>();
+            var left  = new List<WinRect>();
+            var back  = new List<WinRect>();
+            var front = new List<WinRect>();
+
+            for (int r = 0; r < rows; r++)
+            {
+                float y = wt * (r + 0.5f) / rows;
+
+                // 側面（左右）。左右で位置も大きさも別々にずらす
+                for (int side = 0; side < 2; side++)
+                {
+                    // 扉を正面として右(+X)は一回り大きめに保つ
+                    float bias = side == 0 ? 1.30f : 1.0f;
+                    var target = side == 0 ? right : left;
+                    for (int k = 0; k < count; k++)
+                    {
+                        float anchor = count == 1 ? 0f : (k == 0 ? -zRoom * 0.45f : zRoom * 0.45f);
+                        float z = anchor + Rand(seed, ++salt, -0.16f, 0.16f) * hd;
+                        float half = baseSq * bias * Rand(seed, ++salt, 0.80f, 1.20f);
+                        // 壁からはみ出さないよう、位置に応じて大きさを詰める
+                        half = Mathf.Min(half, Mathf.Max(0.018f, zRoom - Mathf.Abs(z)));
+                        z = Mathf.Clamp(z, -(zRoom - half), zRoom - half);
+                        target.Add(new WinRect(z, y, half, half * Rand(seed, ++salt, 0.85f, 1.15f)));
+                    }
+                }
+
+                // 背面の横長窓2つ。左右で位置も寸法も変える
+                for (int k = 0; k < 2; k++)
+                {
+                    float anchor = (k == 0 ? -1f : 1f) * xRoom * 0.45f;
+                    float x = anchor + Rand(seed, ++salt, -0.18f, 0.18f) * hw;
+                    float halfW = Mathf.Min(0.095f, hw * 0.40f) * Rand(seed, ++salt, 0.65f, 1.15f);
+                    halfW = Mathf.Min(halfW, Mathf.Max(0.018f, xRoom - Mathf.Abs(x)));
+                    x = Mathf.Clamp(x, -(xRoom - halfW), xRoom - halfW);
+                    float halfH = baseSq * 0.72f * Rand(seed, ++salt, 0.80f, 1.25f);
+                    back.Add(new WinRect(x, y, halfW, halfH));
+                }
+
+                // 正面は扉があるので、2段目以降にだけ窓を置く
+                if (r > 0)
+                    front.Add(new WinRect(Rand(seed, ++salt, -0.2f, 0.2f) * hw, y, baseSq, baseSq));
+            }
+
+            // 1段のときは扉の横にも1つ添える
+            if (rows == 1)
+                front.Add(new WinRect(hw * 0.52f, wt * 0.60f, baseSq, baseSq));
+
+            EmitWall(right, new Vector3(hw + o, 0, 0), Vector3.forward, Vector3.right);
+            EmitWall(left, new Vector3(-(hw + o), 0, 0), Vector3.forward, Vector3.left);
+            EmitWall(back, new Vector3(0, 0, -(hd + o)), Vector3.right, Vector3.back);
+            EmitWall(front, new Vector3(0, 0, hd + o), Vector3.right, Vector3.forward);
         }
 
         // ---- パレット ----
@@ -372,7 +604,6 @@ namespace ElfVillage.Editor
         /// <summary>パレットPNGを書き出す。emissive=true なら窓ガラス以外を黒にした発光用。</summary>
         private static void WritePalette(string path, bool emissive)
         {
-            if (File.Exists(path)) return;
             Texture2D tex = BuildPalette(emissive);
             File.WriteAllBytes(path, tex.EncodeToPNG());
             Object.DestroyImmediate(tex);
@@ -383,8 +614,7 @@ namespace ElfVillage.Editor
             ti.textureCompression = TextureImporterCompression.Uncompressed;
             ti.mipmapEnabled = false;
             ti.wrapMode = TextureWrapMode.Clamp;
-            ti.maxTextureSize = 64;
-            if (emissive) ti.sRGBTexture = true;
+            ti.maxTextureSize = 128;
             ti.SaveAndReimport();
         }
 
@@ -405,7 +635,7 @@ namespace ElfVillage.Editor
                         // 窓ガラスのマスだけ灯りの色を置き、他は真っ黒にして光らせない
                         c = idx == SwGlass ? new Color(1.00f, 0.82f, 0.45f, 1f) : Color.black;
                     else
-                        c = idx < Palette.Length ? Palette[idx] : Color.magenta;
+                        c = idx < Palette.Length ? Palette[idx] : Color.black;
                     px[y * size + x] = c;
                 }
             }
@@ -413,6 +643,7 @@ namespace ElfVillage.Editor
             tex.Apply();
             return tex;
         }
+
         private static void EnsureFolder(string folder)
         {
             if (AssetDatabase.IsValidFolder(folder)) return;
