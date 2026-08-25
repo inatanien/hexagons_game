@@ -98,6 +98,17 @@ namespace ElfVillage.Editor
             new Color32(0xC9, 0xC4, 0xB6, 0xFF), // 19 壁（石積み・塔）
         };
 
+        private const string SmokePrefabPath = "Assets/_Game/VFX/Common/ChimneySmoke.prefab";
+
+        /// <summary>煙突の先端。煙エフェクトの取り付け位置に使う。BuildChimney と同じ式。</summary>
+        public static Vector3 ChimneyTop(HouseParams p)
+        {
+            float hw = p.width * 0.5f;
+            float hd = p.depth * 0.5f;
+            float top = p.wallHeight + p.roofRise + 0.13f;
+            return new Vector3(hw * 0.32f, top, -hd * 0.42f);
+        }
+
         private const int SwatchPx = 16;   // 1色あたりのピクセル数
         private const int GridCols = 8;    // パレットの列数（8×8＝64マス）
 
@@ -109,6 +120,10 @@ namespace ElfVillage.Editor
         [MenuItem("Tools/精霊樹の森/家メッシュを生成（全6種）")]
         public static void GenerateAll()
         {
+            // 煙を家の子として組み込むので、先に用意しておく
+            if (AssetDatabase.LoadAssetAtPath<GameObject>(SmokePrefabPath) == null)
+                ChimneySmokeGenerator.Generate();
+
             foreach (var kv in Variants())
                 Generate(kv.Value, kv.Key);
             AssetDatabase.SaveAssets();
@@ -234,6 +249,23 @@ namespace ElfVillage.Editor
             GameObject go = new GameObject(name);
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
             go.AddComponent<MeshRenderer>().sharedMaterial = mat;
+
+            // 煙は家プレハブの子として持たせる。ここで組み込んでおけば、
+            // 家を再生成しても煙が消えない
+            if (p.hasChimney)
+            {
+                var smokePrefab = AssetDatabase.LoadAssetAtPath<GameObject>(SmokePrefabPath);
+                if (smokePrefab != null)
+                {
+                    var smoke = (GameObject)PrefabUtility.InstantiatePrefab(smokePrefab, go.transform);
+                    smoke.transform.localPosition = ChimneyTop(p) - new Vector3(0f, 0.01f, 0f);
+                }
+                else
+                {
+                    Debug.LogWarning("[HouseMeshGenerator] 煙プレハブが無いため " + name
+                                     + " に煙を付けませんでした: " + SmokePrefabPath);
+                }
+            }
 
             string prefabPath = folder + "/" + name + ".prefab";
             GameObject prefab = PrefabUtility.SaveAsPrefabAsset(go, prefabPath);
