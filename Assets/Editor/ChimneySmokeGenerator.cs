@@ -52,18 +52,19 @@ namespace ElfVillage.Editor
             main.duration = 5f;
             main.loop = true;
             // 立ちのぼって薄れるまでの時間。長いほどゆったり見える
-            main.startLifetime = new ParticleSystem.MinMaxCurve(4.0f, 6.4f);
-            main.startSpeed = new ParticleSystem.MinMaxCurve(0.035f, 0.075f);
+            main.startLifetime = new ParticleSystem.MinMaxCurve(8f, 13f);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(0.035f, 0.060f);
             main.startSize = new ParticleSystem.MinMaxCurve(0.05f, 0.09f);
             main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
             main.startColor = new ParticleSystem.MinMaxGradient(
                 new Color(0.86f, 0.86f, 0.84f, 1f),
                 new Color(0.70f, 0.71f, 0.72f, 1f));
-            // わずかな負の重力で、煙が浮き上がる感じを出す
-            main.gravityModifier = new ParticleSystem.MinMaxCurve(-0.015f);
+            // 負の重力は加速度なので、寿命が長いと終盤で加速してしまう。
+            // 一定の速さでゆっくり昇らせたいのでゼロにし、上昇は速度だけで決める
+            main.gravityModifier = new ParticleSystem.MinMaxCurve(0f);
             // 家が動いても煙は空間に取り残される。World にしないと家に貼り付く
             main.simulationSpace = ParticleSystemSimulationSpace.World;
-            main.maxParticles = 180;
+            main.maxParticles = 260;
             main.playOnAwake = true;
 
             var em = ps.emission;
@@ -74,17 +75,21 @@ namespace ElfVillage.Editor
             var sh = ps.shape;
             sh.enabled = true;
             sh.shapeType = ParticleSystemShapeType.Cone;
-            sh.angle = 7f;
+            sh.angle = 5f;
             sh.radius = 0.018f;
             sh.rotation = new Vector3(-90f, 0f, 0f);  // 上向きに噴き出させる
 
-            // 上昇しながら風で流される
+            // 上昇しながら風で流される。
+            // 横方向を粒ごとのランダムにすると、柱にならず扇状に散ってしまう。
+            // 風は全体で同じ向きに吹くものなので定数にする
             var vel = ps.velocityOverLifetime;
             vel.enabled = true;
             vel.space = ParticleSystemSimulationSpace.World;
-            vel.x = Curve(0f, 0.075f);
-            vel.y = Curve(0.018f, 0.042f);
-            vel.z = Curve(0f, 0.026f);
+            // 真上に昇らせたいので横方向の風は入れない
+            vel.x = new ParticleSystem.MinMaxCurve(0f);
+            vel.z = new ParticleSystem.MinMaxCurve(0f);
+            // 縦だけは粒ごとに少し散らす。揃いすぎると板のように見えるため
+            vel.y = Curve(0.030f, 0.050f);
 
             // 上がるにつれて膨らむ。煙らしさの大半はこれで決まる
             var size = ps.sizeOverLifetime;
@@ -118,14 +123,17 @@ namespace ElfVillage.Editor
             var rot = ps.rotationOverLifetime;
             rot.enabled = true;
             rot.separateAxes = false;
-            rot.z = new ParticleSystem.MinMaxCurve(-0.3f, 0.3f);
+            rot.z = new ParticleSystem.MinMaxCurve(-0.12f, 0.12f);
 
-            // 乱流。これがないと一直線に上がって不自然になる
+            // 乱流。これがないと一直線に上がって不自然になる。
+            // ただし frequency が低いとノイズ場が空間に固定され、
+            // 「揺らぎ」ではなく「一定方向の強い風」として働いてしまう。
+            // 周波数を上げて、高さごとに違う向きの揺れを受けるようにする
             var noise = ps.noise;
             noise.enabled = true;
-            noise.strength = new ParticleSystem.MinMaxCurve(0.05f);
-            noise.frequency = 0.35f;
-            noise.scrollSpeed = new ParticleSystem.MinMaxCurve(0.07f);
+            noise.strength = new ParticleSystem.MinMaxCurve(0.012f);
+            noise.frequency = 1.3f;
+            noise.scrollSpeed = new ParticleSystem.MinMaxCurve(0.12f);
             noise.damping = true;
             noise.quality = ParticleSystemNoiseQuality.High;
             noise.octaveCount = 2;
