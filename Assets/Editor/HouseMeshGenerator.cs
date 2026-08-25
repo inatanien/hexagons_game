@@ -101,22 +101,11 @@ namespace ElfVillage.Editor
             }
 
             string texPath = folder + "/HousePalette.png";
-            if (!File.Exists(texPath))
-            {
-                Texture2D tex = BuildPalette();
-                File.WriteAllBytes(texPath, tex.EncodeToPNG());
-                Object.DestroyImmediate(tex);
-                AssetDatabase.ImportAsset(texPath);
-                TextureImporter ti = (TextureImporter)AssetImporter.GetAtPath(texPath);
-                // マスの境界で色が混ざらないよう、補間と圧縮とミップを切る
-                ti.filterMode = FilterMode.Point;
-                ti.textureCompression = TextureImporterCompression.Uncompressed;
-                ti.mipmapEnabled = false;
-                ti.wrapMode = TextureWrapMode.Clamp;
-                ti.maxTextureSize = 64;
-                ti.SaveAndReimport();
-            }
+            string emiPath = folder + "/HouseEmission.png";
+            WritePalette(texPath, false);
+            WritePalette(emiPath, true);
             Texture2D texAsset = AssetDatabase.LoadAssetAtPath<Texture2D>(texPath);
+            Texture2D emiAsset = AssetDatabase.LoadAssetAtPath<Texture2D>(emiPath);
 
             string matPath = folder + "/HouseFlat.mat";
             Material mat = AssetDatabase.LoadAssetAtPath<Material>(matPath);
@@ -127,6 +116,11 @@ namespace ElfVillage.Editor
             }
             mat.SetFloat("_Smoothness", 0.05f);
             mat.mainTexture = texAsset;
+            // 窓だけが光る発光マップ。UV0 を共用するのでマテリアルは1枚のまま
+            mat.EnableKeyword("_EMISSION");
+            mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
+            mat.SetTexture("_EmissionMap", emiAsset);
+            mat.SetColor("_EmissionColor", Color.black); // 初期値は消灯。点灯は実行時に制御する
             EditorUtility.SetDirty(mat);
 
             GameObject go = new GameObject(name);
@@ -137,6 +131,12 @@ namespace ElfVillage.Editor
             GameObject prefab = PrefabUtility.SaveAsPrefabAsset(go, prefabPath);
             Object.DestroyImmediate(go);
             AssetDatabase.SaveAssets();
+
+            // 保存直後は Unity 内部のキャッシュが古く、プレハブから見た sharedMesh が
+            // null のままになる。強制再インポートして参照を確定させる
+            AssetDatabase.ImportAsset(meshPath, ImportAssetOptions.ForceUpdate);
+            AssetDatabase.ImportAsset(prefabPath, ImportAssetOptions.ForceUpdate);
+            prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
 
             Debug.Log("[HouseMeshGenerator] " + name + ": " + (mesh.triangles.Length / 3)
                       + " tris, " + mesh.vertexCount + " verts -> " + prefabPath);
@@ -369,7 +369,26 @@ namespace ElfVillage.Editor
             return new Vector2(u, v);
         }
 
-        private static Texture2D BuildPalette()
+        /// <summary>パレットPNGを書き出す。emissive=true なら窓ガラス以外を黒にした発光用。</summary>
+        private static void WritePalette(string path, bool emissive)
+        {
+            if (File.Exists(path)) return;
+            Texture2D tex = BuildPalette(emissive);
+            File.WriteAllBytes(path, tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+            AssetDatabase.ImportAsset(path);
+            TextureImporter ti = (TextureImporter)AssetImporter.GetAtPath(path);
+            // マスの境界で色が混ざらないよう、補間と圧縮とミップを切る
+            ti.filterMode = FilterMode.Point;
+            ti.textureCompression = TextureImporterCompression.Uncompressed;
+            ti.mipmapEnabled = false;
+            ti.wrapMode = TextureWrapMode.Clamp;
+            ti.maxTextureSize = 64;
+            if (emissive) ti.sRGBTexture = true;
+            ti.SaveAndReimport();
+        }
+
+        private static Texture2D BuildPalette(bool emissive)
         {
             int size = GridCols * SwatchPx;
             Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
@@ -381,14 +400,19 @@ namespace ElfVillage.Editor
                     int col = x / SwatchPx;
                     int row = (size - 1 - y) / SwatchPx;
                     int idx = row * GridCols + col;
-                    px[y * size + x] = idx < Palette.Length ? Palette[idx] : Color.magenta;
+                    Color c;
+                    if (emissive)
+                        // 窓ガラスのマスだけ灯りの色を置き、他は真っ黒にして光らせない
+                        c = idx == SwGlass ? new Color(1.00f, 0.82f, 0.45f, 1f) : Color.black;
+                    else
+                        c = idx < Palette.Length ? Palette[idx] : Color.magenta;
+                    px[y * size + x] = c;
                 }
             }
             tex.SetPixels(px);
             tex.Apply();
             return tex;
         }
-
         private static void EnsureFolder(string folder)
         {
             if (AssetDatabase.IsValidFolder(folder)) return;
