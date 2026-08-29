@@ -38,7 +38,7 @@ namespace ElfVillage.Tiles
 
             if (!type.HasVisualElements)
             {
-                HexTile.SpawnPropsPreview(type, parent, outerRadius, tileHeight);
+                HexTile.SpawnPropsPreview(type, parent, outerRadius, tileHeight, coord);
             }
             else
             {

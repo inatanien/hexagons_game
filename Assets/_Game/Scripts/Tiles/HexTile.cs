@@ -591,13 +591,16 @@ namespace ElfVillage.Tiles
         /// Water は川岸ラインのみ表示（パーティクルは省略）。
         /// </summary>
         public static void SpawnPropsPreview(TileType type, Transform parent,
-                                              float outerRadius = 2.0f, float tileHeight = 0.30f)
+                                              float outerRadius = 2.0f, float tileHeight = 0.30f,
+                                              HexCoord seedCoord = default(HexCoord))
         {
             if (type == null) return;
             switch (type.propType)
             {
                 case TilePropType.Tree:   SpawnTreesStatic(type, parent, tileHeight);               break;
-                case TilePropType.House:  SpawnHouseStatic(type, parent, tileHeight, default(HexCoord)); break;
+                // 家は座標で軒数も配置も変わるので、ホバー先の座標をそのまま渡す。
+                // ここで既定値のままにすると、ゴーストが常に座標(0,0)の村になってしまう
+                case TilePropType.House:  SpawnHouseStatic(type, parent, tileHeight, seedCoord);    break;
                 case TilePropType.Flower: SpawnFlowersStatic(type, parent, tileHeight);             break;
                 case TilePropType.Water:  SpawnWaterPreview(type, parent, outerRadius, tileHeight); break;
             }

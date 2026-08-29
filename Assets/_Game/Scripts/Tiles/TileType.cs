@@ -123,6 +123,15 @@ namespace ElfVillage.Tiles
         /// </summary>
         public bool HasLandDecoration => landDecoration != null && landDecorationCandidateCount > 0;
 
+        /// <summary>
+        /// 見た目が座標シードに依存するか。配置ゴーストは、これが true のタイルだけ
+        /// ホバー先が変わるたびに作り直す必要がある（作り直さないと置く前と後で見た目が食い違う）。
+        /// House は1タイルに4〜6軒を座標から決めるため対象。
+        /// ★見た目の生成条件専用。カテゴリ判定には絶対に使わないこと。
+        /// </summary>
+        public bool UsesCoordLayout
+            => HasVisualElements || HasLandDecoration || propType == TilePropType.House;
+
         public EdgeType GetEdge(int direction)
         {
             int d = ((direction % 6) + 6) % 6;

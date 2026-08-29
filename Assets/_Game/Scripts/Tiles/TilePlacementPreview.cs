@@ -181,9 +181,10 @@ namespace ElfVillage.Tiles
             //  - 座標だけが変わった場合: 座標シードを使う複合要素タイルだけ再生成
             //    （legacyのSpawnPropsPreviewは座標を使わず見た目が変化しないため不要な再生成を避ける）
             // 座標をシードに使う見た目を持つタイルは、ホバー先が変わったら作り直す必要がある。
-            // 複合要素タイルに加えて、陸地装飾（landDecoration）も座標から候補を決めるため対象。
-            // ここを落とすと、置く前と置いた後で木の位置が食い違う。
-            bool usesCoordLayout  = tileType.HasVisualElements || tileType.HasLandDecoration;
+            // ここを落とすと、置く前と置いた後で木や家の位置が食い違う。
+            // 対象の判定は TileType.UsesCoordLayout に集約してある
+            // （プロップを座標依存にしたときは、そちらだけ直せば済むようにするため）。
+            bool usesCoordLayout  = tileType.UsesCoordLayout;
             HexCoord hoveredCoord = hoveredTile.Data.coord;
             bool needsRebuild = _lastType != tileType
                              || (usesCoordLayout && _lastCoord != hoveredCoord);
