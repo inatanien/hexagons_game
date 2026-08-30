@@ -1,7 +1,7 @@
 ﻿{
     "name": "_Game.Tests.PlayMode",
     "rootNamespace": "ElfVillage.Tests",
-    "references": ["_Game.Scripts.Core", "_Game.Scripts.HexGrid", "_Game.Scripts.Tiles", "_Game.Scripts.Spirits", "UnityEngine.TestRunner"],
+    "references": ["_Game.Scripts.Core", "_Game.Scripts.HexGrid", "_Game.Scripts.Tiles", "_Game.Scripts.Spirits", "_Game.Scripts.Quest", "UnityEngine.TestRunner"],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,

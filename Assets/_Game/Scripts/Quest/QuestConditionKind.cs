@@ -8,12 +8,19 @@ namespace ElfVillage.Quest
     public enum QuestConditionKind
     {
         /// <summary>連結クラスターの規模がtargetCountに達する。
-        /// TerrainClusterProgressEvent（Core）を観測する。</summary>
+        /// TerrainClusterProgressEvent（Core）を観測する。
+        /// 「現在の状態」なので加算せず、到達した最大値を保持する。</summary>
         ClusterSize = 0,
 
-        // 追加予定（Step 3）:
-        //   TilePlacedCount = 1   該当タイルをN枚置く
-        //   EventOccurrence = 2   特定の出来事がN回起きる（橋・シナジー）
-        // ★必ず末尾へ追加すること。途中へ挿入すると既存アセットのkindがずれる。
+        /// <summary>該当カテゴリのタイルをtargetCount枚置く。
+        /// TileCategoryPlacedEvent（Core）を数える。</summary>
+        TilePlacedCount = 1,
+
+        /// <summary>eventKeyで指定した出来事がtargetCount回起きる（橋・シナジーなど）。
+        /// WorldEventOccurredEvent（Core）を数える。</summary>
+        EventOccurrence = 2,
+
+        // ★新しい種別は必ず末尾へ追加すること。
+        //   途中へ挿入すると既存アセットのkindがずれる。
     }
 }

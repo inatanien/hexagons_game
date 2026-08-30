@@ -1,0 +1,22 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e07c0b317ad6cf8429e656f74023632d, type: 3}
+  m_Name: Quest_Bridge1
+  m_EditorClassIdentifier: 
+  title: "\u5DDD\u3092\u80B2\u3066\u3066\u6A4B\u3092\u67B6\u3051\u3088\u3046"
+  description: "\u5DDD\u3092\u9577\u304F\u3064\u306A\u3052\u308B\u3068\u3001\u3084\u304C\u3066\u6A4B\u304C\u67B6\u304B\u308A\u307E\u3059\u3002"
+  condition:
+    kind: 2
+    category: 0
+    eventKey: bridge
+    targetCount: 1
+  rewardId: 

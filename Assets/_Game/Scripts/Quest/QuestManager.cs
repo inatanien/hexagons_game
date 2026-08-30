@@ -2,14 +2,18 @@
 //       QuestDefinition.condition（QuestCondition）が示す種別に従って進捗を更新するだけで、
 //       questIdごとの分岐は持たない。クエストを増やしてもこのクラスは変わらない。
 //       購読するのはCoreのイベントだけで、Tiles固有の型には一切依存しない
-//       （森・川のクラスター判定はTiles側の評価システムが行い、こちらは結果を観測するだけ）。
+//       （森・川のクラスター判定や橋・シナジーの成立判定はTiles側の評価システムが行い、
+//        こちらはRelayが翻訳した結果を観測するだけ）。
 //       達成後の次クエストへの切り替え・キュー管理・報酬・演出はまだこのクラスの責務ではない。
 //
 //       ライフサイクル:
-//         OnEnable ... クエストの妥当性を検証し、有効なときだけ進捗イベントを購読する
+//         OnEnable ... クエストの妥当性を検証し、有効なときだけ条件種別に応じたイベントを購読する
 //                      （無効なデータが一瞬でも購読状態になるのを避けるため、検証を遅らせない）
 //         Start    ... 有効なときだけQuestStartedEventを発行する
-//         OnDisable... 実際に購読していたときだけ解除する
+//         OnDisable... 実際に購読した種別（_subscribedKind）だけを解除する
+//
+//       ★解除時にCondition.kindを読み直さないこと。実行中にQuestDefinitionの値が
+//         書き換わると、購読したものと違うイベントを解除しようとして購読が残る。
 //
 //       QuestStartedEventはOnEnableではなくStartで発行する。Unityは「シーン読み込み時に
 //       存在する全オブジェクトのOnEnableが完了してから、初めてどれかのStartが呼ばれる」ことを
@@ -19,6 +23,7 @@
 //       この仕組みはQuestManager/QuestPanelUIがシーン開始時から常駐し無効化されないことを前提とする。
 //       動的生成・再有効化に対応する再通知機構はまだ導入しない（将来必要になれば別途検討）。
 
+using System;
 using UnityEngine;
 using ElfVillage.Core;
 
@@ -30,8 +35,10 @@ namespace ElfVillage.Quest
 
         private int  _currentCount;
         private bool _isCompleted;
-        private bool _subscribed;
         private bool _started;
+
+        private bool               _subscribed;
+        private QuestConditionKind _subscribedKind;
 
         /// <summary>有効なクエストの条件。_subscribedがtrueのときだけ意味を持つ。</summary>
         private QuestCondition Condition => _activeQuest.condition;
@@ -39,11 +46,13 @@ namespace ElfVillage.Quest
         private void OnEnable()
         {
             if (!IsQuestValid()) return;
+            // 購読できなかった種別で_subscribed = trueにしないため、成功可否を見てから確定する
+            if (!SubscribeForKind(Condition.kind)) return;
 
-            EventBus.Subscribe<TerrainClusterProgressEvent>(OnClusterProgress);
-            _subscribed   = true;
-            _currentCount = 0;
-            _isCompleted  = false;
+            _subscribed     = true;
+            _subscribedKind = Condition.kind;
+            _currentCount   = 0;
+            _isCompleted    = false;
         }
 
         private void Start()
@@ -60,7 +69,8 @@ namespace ElfVillage.Quest
         private void OnDisable()
         {
             if (!_subscribed) return;
-            EventBus.Unsubscribe<TerrainClusterProgressEvent>(OnClusterProgress);
+
+            UnsubscribeForKind(_subscribedKind);
             _subscribed = false;
         }
 
@@ -76,39 +86,125 @@ namespace ElfVillage.Quest
                 return false;
             }
 
-            if (_activeQuest.condition == null)
+            var condition = _activeQuest.condition;
+            if (condition == null)
             {
                 Debug.LogWarning(
                     $"[QuestManager] {_activeQuest.name} のconditionが未設定のため開始しません。", this);
                 return false;
             }
 
-            if (_activeQuest.condition.targetCount <= 0)
+            if (!Enum.IsDefined(typeof(QuestConditionKind), condition.kind))
             {
                 Debug.LogWarning(
-                    $"[QuestManager] {_activeQuest.name} のtargetCountが{_activeQuest.condition.targetCount}のため開始しません。" +
+                    $"[QuestManager] {_activeQuest.name} のkindが未対応の値（{(int)condition.kind}）のため開始しません。", this);
+                return false;
+            }
+
+            if (condition.targetCount <= 0)
+            {
+                Debug.LogWarning(
+                    $"[QuestManager] {_activeQuest.name} のtargetCountが{condition.targetCount}のため開始しません。" +
                     "targetCountは1以上を設定してください。", this);
+                return false;
+            }
+
+            // eventKeyが空のままだと、どの出来事とも一致せず永久に進まないクエストになる
+            if (condition.kind == QuestConditionKind.EventOccurrence &&
+                string.IsNullOrWhiteSpace(condition.eventKey))
+            {
+                Debug.LogWarning(
+                    $"[QuestManager] {_activeQuest.name} のeventKeyが未設定のため開始しません。" +
+                    "EventOccurrenceではWorldEventKeysのキー（例: bridge）を設定してください。", this);
                 return false;
             }
 
             return true;
         }
 
-        // ── 条件種別ごとの観測 ────────────────────────────────────────
-        // 種別ごとにハンドラを分けることで、条件を増やしても
-        // questIdごとの分岐ではなく購読の追加だけで済むようにする。
+        // ── 条件種別ごとの購読 ────────────────────────────────────────
+        // 種別ごとに必要なイベントだけを購読する。
+        // これによりClusterSizeのクエストが配置イベントを受け取ることはなく、
+        // 種別を増やしてもquestIdごとの分岐ではなく購読の追加だけで済む。
+
+        private bool SubscribeForKind(QuestConditionKind kind)
+        {
+            switch (kind)
+            {
+                case QuestConditionKind.ClusterSize:
+                    EventBus.Subscribe<TerrainClusterProgressEvent>(OnClusterProgress);
+                    return true;
+
+                case QuestConditionKind.TilePlacedCount:
+                    EventBus.Subscribe<TileCategoryPlacedEvent>(OnTileCategoryPlaced);
+                    return true;
+
+                case QuestConditionKind.EventOccurrence:
+                    EventBus.Subscribe<WorldEventOccurredEvent>(OnWorldEventOccurred);
+                    return true;
+
+                default:
+                    Debug.LogWarning($"[QuestManager] 未対応の条件種別のため購読しません: {kind}", this);
+                    return false;
+            }
+        }
+
+        private void UnsubscribeForKind(QuestConditionKind kind)
+        {
+            switch (kind)
+            {
+                case QuestConditionKind.ClusterSize:
+                    EventBus.Unsubscribe<TerrainClusterProgressEvent>(OnClusterProgress);
+                    break;
+
+                case QuestConditionKind.TilePlacedCount:
+                    EventBus.Unsubscribe<TileCategoryPlacedEvent>(OnTileCategoryPlaced);
+                    break;
+
+                case QuestConditionKind.EventOccurrence:
+                    EventBus.Unsubscribe<WorldEventOccurredEvent>(OnWorldEventOccurred);
+                    break;
+            }
+        }
+
+        // ── 各種別の観測 ──────────────────────────────────────────────
 
         private void OnClusterProgress(TerrainClusterProgressEvent evt)
         {
-            if (Condition.kind != QuestConditionKind.ClusterSize) return;
-            if (evt.Category   != Condition.category)             return;
+            if (evt.Category != Condition.category) return;
 
             // クラスター規模は「現在の状態の観測」であって出来事の回数ではない。
             // 届いた値を足し込まず、そのまま進捗値として報告する
             ReportProgress(evt.ClusterSize);
         }
 
+        private void OnTileCategoryPlaced(TileCategoryPlacedEvent evt)
+        {
+            if (evt.Category != Condition.category) return;
+            ReportIncrement();
+        }
+
+        private void OnWorldEventOccurred(WorldEventOccurredEvent evt)
+        {
+            if (!KeyMatches(evt.EventKey, Condition.eventKey)) return;
+            ReportIncrement();
+        }
+
+        /// <summary>
+        /// 出来事キーの一致判定。前後の空白を落とし、大文字小文字は区別しない。
+        /// SynergyIdはInspectorへ、eventKeyはSOへそれぞれ手入力される文字列なので、
+        /// 綴りの大小差だけでクエストが永久に進まなくなるのを避ける。
+        /// </summary>
+        private static bool KeyMatches(string published, string wanted)
+        {
+            if (string.IsNullOrWhiteSpace(published) || string.IsNullOrWhiteSpace(wanted)) return false;
+            return string.Equals(published.Trim(), wanted.Trim(), StringComparison.OrdinalIgnoreCase);
+        }
+
         // ── 進捗の確定（クランプ・通知・完了判定を1か所へ集約） ────────
+
+        /// <summary>出来事を1回数える。加算型の条件（TilePlacedCount / EventOccurrence）用。</summary>
+        private void ReportIncrement() => ReportProgress(_currentCount + 1);
 
         private void ReportProgress(int value)
         {
