@@ -1,6 +1,13 @@
-// 役割: 川タイルの連結クラスターを評価し RiverClusterEvent を発行する。
-//       TilePlacedEvent を購読し、川タイルが配置されるたびに BFS でクラスターを計算。
-//       閾値（デフォルト8枚）以上で連結していればイベントを発行する。
+// 役割: 川タイルの連結クラスターを評価し、2系統のイベントを発行する。
+//       TilePlacedEvent を購読し、川タイルが配置されるたびに BFS でクラスターを計算する。
+//
+//       1) TerrainGrowthEvent<RiverGrowthMetrics> ... クエスト進捗の観測用。閾値なしで毎回発行。
+//       2) RiverClusterEvent                      ... 魚などの演出用。閾値（既定8枚）以上のときだけ発行。
+//
+//       ★2系統に分けているのは、「クエストが観測する進捗」と「演出が発生する閾値」を
+//         完全に分離するため。閾値を1つにすると、川3枚のクエストを作った途端に
+//         魚が3枚で湧いてしまう（逆に魚に合わせると3枚のクエストが作れない）。
+//         森は ForestGrowthEvaluator が同じ形で閾値なしの成長イベントを出しており、それと対称。
 //
 //       ★川かどうかは TileType.HasCategory(River) で判定する。
 //         以前はSceneのTileType[]へ登録されたアセット参照の一致で判定しており、
@@ -22,6 +29,16 @@ namespace ElfVillage.Tiles
         [Header("魚が出現するまでの最小連結枚数")]
         [SerializeField] private int _threshold = 8;
 
+        // 配置済み川タイルの総数（TilePlacedEventによるインクリメント管理）。
+        // ★この値はイベントの累計であって盤面の実測ではない。
+        //   Save/Load・タイル削除・盤面の再構築を導入すると、
+        //   加算値と実際の盤面がずれる可能性がある。
+        //   その時点で「盤面から再計算する」方式へ置き換えること
+        //   （ForestGrowthEvaluator._totalForestTiles も同じ制約を抱えている）。
+        //   クエスト進捗が読むのは LargestClusterSize（毎回BFSで実測）なので、
+        //   ずれの影響を受けるのは TotalRiverTiles を使う将来の機能だけ。
+        private int _totalRiverTiles;
+
         private void OnEnable()  => EventBus.Subscribe<TilePlacedEvent>(OnTilePlaced);
         private void OnDisable() => EventBus.Unsubscribe<TilePlacedEvent>(OnTilePlaced);
 
@@ -29,7 +46,19 @@ namespace ElfVillage.Tiles
         {
             if (!IsRiverType(evt.TileType)) return;
 
+            _totalRiverTiles++;
+
             var cluster = FindCluster(evt.Coord);
+
+            // ── 1) クエスト進捗の観測用。閾値と無関係に毎回発行する ──
+            EventBus.Publish(new TerrainGrowthEvent<RiverGrowthMetrics>(
+                terrainType:   evt.TileType,
+                anchor:        evt.Coord,
+                affectedTiles: cluster,
+                metrics:       new RiverGrowthMetrics(cluster.Count, _totalRiverTiles)
+            ));
+
+            // ── 2) 魚などの演出用。ここから下は従来どおりの挙動 ──
             if (cluster.Count < _threshold) return;
 
             EventBus.Publish(new RiverClusterEvent(cluster));
