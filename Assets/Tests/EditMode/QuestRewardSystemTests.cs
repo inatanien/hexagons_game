@@ -23,8 +23,7 @@ namespace ElfVillage.Tests
         {
             var q = ScriptableObject.CreateInstance<QuestDefinition>();
             q.title          = title;
-            q.targetCategory = TerrainClusterCategory.Forest;
-            q.targetCount    = 5;
+            q.condition = new QuestCondition(QuestConditionKind.ClusterSize, TerrainClusterCategory.Forest, 5);
             q.rewardId       = rewardId;
             return q;
         }

@@ -39,20 +39,20 @@ namespace ElfVillage.UI
         {
             if (_panelRoot != null) _panelRoot.SetActive(true);
             SetTitle(evt.Quest.title);
-            SetProgress(0, evt.Quest.targetCount);
+            SetProgress(0, evt.Quest.TargetCount);
             SetCompleted(false);
         }
 
         private void OnQuestProgressChanged(QuestProgressChangedEvent evt)
         {
             SetTitle(evt.Quest.title);
-            SetProgress(evt.CurrentCount, evt.Quest.targetCount);
+            SetProgress(evt.CurrentCount, evt.Quest.TargetCount);
         }
 
         private void OnQuestCompleted(QuestCompletedEvent evt)
         {
             SetTitle(evt.Quest.title);
-            SetProgress(evt.Quest.targetCount, evt.Quest.targetCount);
+            SetProgress(evt.Quest.TargetCount, evt.Quest.TargetCount);
             SetCompleted(true);
         }
 

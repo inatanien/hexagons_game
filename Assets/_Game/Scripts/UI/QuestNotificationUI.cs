@@ -100,7 +100,7 @@ namespace ElfVillage.UI
         {
             SetHeader("🌲 新しいクエスト");
             SetTitle(evt.Quest.title);
-            SetProgress($"0 / {evt.Quest.targetCount}", true);
+            SetProgress($"0 / {evt.Quest.TargetCount}", true);
             Show(_startedDisplayDuration);
         }
 

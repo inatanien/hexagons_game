@@ -68,8 +68,7 @@ namespace ElfVillage.Tests
             var q = ScriptableObject.CreateInstance<QuestDefinition>();
             q.title          = "E2E Test Quest";
             q.description    = "エンドツーエンドテスト用";
-            q.targetCategory = TerrainClusterCategory.Forest;
-            q.targetCount    = 5;
+            q.condition = new QuestCondition(QuestConditionKind.ClusterSize, TerrainClusterCategory.Forest, 5);
             q.rewardId       = "forest_unlock_birds";
             return q;
         }
