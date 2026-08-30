@@ -1,5 +1,10 @@
-// 役割: QuestRewardSystem（Stage 4 最小報酬システム）の単体テスト。
+// 役割: QuestRewardSystem（クエスト達成 → 報酬解放）の単体テスト。
 //       QuestManagerを直接参照していないことも、リフレクションで構造的に検証する。
+//
+//       ★このシステムはrewardIdの内容を解釈しない。未知のIDでもそのまま発行し、
+//         どの報酬に反応するかは受信側（BirdRewardSpawner等）の責務とする。
+//       ★rewardIdは識別子なので前後の空白は意味を持たない。
+//         正規化（Trim）が「発行するID」と「重複判定」の両方へ効いていることを固定する。
 
 using System.Linq;
 using System.Reflection;
@@ -104,23 +109,149 @@ namespace ElfVillage.Tests
             }
         }
 
-        // ── 未対応のrewardIdでは何も発行されない（switchの既定分岐の確認） ─────
+        // ── 2b. 未知のrewardIdでもそのまま発行される（switch撤去の本体確認） ───
 
         [Test]
-        public void QuestCompleted_WithUnknownRewardId_DoesNotPublish()
+        public void QuestCompleted_WithUnknownRewardId_PublishesRewardUnlockedEvent()
         {
             var system = MakeSystem();
             try
             {
-                int receivedCount = 0;
-                System.Action<RewardUnlockedEvent> handler = e => receivedCount++;
+                int    receivedCount = 0;
+                string lastRewardId  = null;
+                System.Action<RewardUnlockedEvent> handler = e => { receivedCount++; lastRewardId = e.RewardId; };
                 EventBus.Subscribe(handler);
                 try
                 {
                     var quest = MakeQuest("花畑を広げよう", "flower_unlock_butterflies");
                     EventBus.Publish(new QuestCompletedEvent(quest));
 
-                    Assert.AreEqual(0, receivedCount, "Stage 4では未対応のrewardIdは無視されるはず");
+                    Assert.AreEqual(1, receivedCount,
+                        "QuestRewardSystemはrewardIdの内容を解釈せず、未知のIDでもそのまま発行するはず");
+                    Assert.AreEqual("flower_unlock_butterflies", lastRewardId);
+                }
+                finally
+                {
+                    EventBus.Unsubscribe(handler);
+                }
+            }
+            finally
+            {
+                Teardown(system);
+            }
+        }
+
+        // ── 2c. 未知のrewardIdでも二重解放しない ────────────────────────────
+
+        [Test]
+        public void QuestCompleted_WithUnknownRewardId_DoesNotPublishTwice()
+        {
+            var system = MakeSystem();
+            try
+            {
+                int receivedCount = 0;
+                System.Action<RewardUnlockedEvent> handler = _ => receivedCount++;
+                EventBus.Subscribe(handler);
+                try
+                {
+                    var quest = MakeQuest("花畑を広げよう", "flower_unlock_butterflies");
+                    EventBus.Publish(new QuestCompletedEvent(quest));
+                    EventBus.Publish(new QuestCompletedEvent(quest));
+
+                    Assert.AreEqual(1, receivedCount, "未知のIDでも解放済みとして記録され、2回目は発行されないはず");
+                }
+                finally
+                {
+                    EventBus.Unsubscribe(handler);
+                }
+            }
+            finally
+            {
+                Teardown(system);
+            }
+        }
+
+        // ── 2d. 報酬なしクエスト（null / 空 / 空白のみ）では発行しない ───────
+
+        [Test]
+        public void QuestCompleted_WithBlankRewardId_PublishesNothing()
+        {
+            foreach (string rewardId in new[] { null, "", "   " })
+            {
+                var system = MakeSystem();
+                try
+                {
+                    int receivedCount = 0;
+                    System.Action<RewardUnlockedEvent> handler = _ => receivedCount++;
+                    EventBus.Subscribe(handler);
+                    try
+                    {
+                        var quest = MakeQuest("静かな森をつくろう", rewardId);
+                        EventBus.Publish(new QuestCompletedEvent(quest));
+
+                        Assert.AreEqual(0, receivedCount,
+                            $"rewardId=\"{rewardId}\" は報酬なしクエストとして扱い、発行しないはず");
+                    }
+                    finally
+                    {
+                        EventBus.Unsubscribe(handler);
+                    }
+                }
+                finally
+                {
+                    Teardown(system);
+                }
+            }
+        }
+
+        // ── 2e. 前後の空白は正規化して発行される ────────────────────────────
+
+        [Test]
+        public void QuestCompleted_WithPaddedRewardId_PublishesTrimmedId()
+        {
+            var system = MakeSystem();
+            try
+            {
+                string lastRewardId = null;
+                System.Action<RewardUnlockedEvent> handler = e => lastRewardId = e.RewardId;
+                EventBus.Subscribe(handler);
+                try
+                {
+                    var quest = MakeQuest("森を育てよう", " forest_unlock_birds ");
+                    EventBus.Publish(new QuestCompletedEvent(quest));
+
+                    Assert.AreEqual("forest_unlock_birds", lastRewardId,
+                        "受信側の完全一致が失敗しないよう、前後の空白を落としたIDを発行するはず");
+                }
+                finally
+                {
+                    EventBus.Unsubscribe(handler);
+                }
+            }
+            finally
+            {
+                Teardown(system);
+            }
+        }
+
+        // ── 2f. 正規化は重複判定にも効く ────────────────────────────────────
+
+        [Test]
+        public void QuestCompleted_PaddedVariantOfUnlockedId_DoesNotPublishAgain()
+        {
+            var system = MakeSystem();
+            try
+            {
+                int receivedCount = 0;
+                System.Action<RewardUnlockedEvent> handler = _ => receivedCount++;
+                EventBus.Subscribe(handler);
+                try
+                {
+                    EventBus.Publish(new QuestCompletedEvent(MakeQuest("森を育てよう",   "forest_unlock_birds")));
+                    EventBus.Publish(new QuestCompletedEvent(MakeQuest("森をもっと育てよう", " forest_unlock_birds ")));
+
+                    Assert.AreEqual(1, receivedCount,
+                        "空白違いは同じ報酬なので、2回目は二重解放されないはず");
                 }
                 finally
                 {
