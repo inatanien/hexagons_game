@@ -61,7 +61,7 @@ namespace ElfVillage.Tests
             // QuestSequence_Tutorial と同じ並び・同じ条件
             var forest  = MakeQuest("森を育てよう",
                 new QuestCondition(QuestConditionKind.ClusterSize, TerrainClusterCategory.Forest, 5));
-            var field   = MakeQuest("畑をひらこう",
+            var field   = MakeQuest("花畑をひらこう",
                 new QuestCondition(QuestConditionKind.TilePlacedCount, TerrainClusterCategory.Field, 2));
             var river   = MakeQuest("川をつなげよう",
                 new QuestCondition(QuestConditionKind.ClusterSize, TerrainClusterCategory.River, 3));
@@ -104,7 +104,7 @@ namespace ElfVillage.Tests
                 // 1本目: 森のクラスターが5枚に育つ
                 EventBus.Publish(new TerrainClusterProgressEvent(TerrainClusterCategory.Forest, 5));
                 yield return new WaitForSeconds(Delay + 0.1f);
-                Assert.AreEqual("畑をひらこう", started[started.Count - 1], "2本目が始まっているはず");
+                Assert.AreEqual("花畑をひらこう", started[started.Count - 1], "2本目が始まっているはず");
 
                 // 2本目: 畑タイルを2枚置く（加算型）
                 EventBus.Publish(new TileCategoryPlacedEvent(TerrainClusterCategory.Field));
@@ -127,7 +127,7 @@ namespace ElfVillage.Tests
                 yield return new WaitForSeconds(Delay + 0.1f);
 
                 CollectionAssert.AreEqual(
-                    new[] { "森を育てよう", "畑をひらこう", "川をつなげよう", "川を育てて橋を架けよう", "森と川を大きく育てよう" },
+                    new[] { "森を育てよう", "花畑をひらこう", "川をつなげよう", "川を育てて橋を架けよう", "森と川を大きく育てよう" },
                     started, "5本が設計した順に開始されるはず");
                 CollectionAssert.AreEqual(started, completed, "開始した5本すべてが達成されるはず");
                 Assert.AreEqual(1, sequenceCompleted, "Sequence完走は1回だけのはず");

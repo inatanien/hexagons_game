@@ -1,7 +1,7 @@
 // 役割: チュートリアルSequenceの実アセットと、本編シーンの設定を固定する（Stage C）。
 //
 //       ★並び順そのものが体験の設計なので、アセットの中身をテストで固定する。
-//         森を育てる → 畑を置く（一度軽くする）→ 川をつなぐ → その川を育てて橋 →
+//         森を育てる → 花畑を置く（一度軽くする）→ 川をつなぐ → その川を育てて橋 →
 //         最後に森と川を組み合わせる、という学習の流れになっている。
 //
 //       ★シーン設定テストは、Phase1_v002が「Sequence運用」になっていることを固定するための
@@ -13,6 +13,7 @@ using System.IO;
 using NUnit.Framework;
 using ElfVillage.Core;
 using ElfVillage.Quest;
+using ElfVillage.Tiles;
 using UnityEngine;
 
 namespace ElfVillage.Tests
@@ -99,6 +100,50 @@ namespace ElfVillage.Tests
                 "橋クエストのキーがWorldEventRelayの発行するキーと一致していません");
             Assert.AreEqual(WorldEventKeys.Synergy("ForestRiver"), quests[4].condition.eventKey,
                 "シナジークエストのキーがシーンのSynergyEvaluator（SynergyId=ForestRiver）と一致していません");
+        }
+
+        // ── 3b. 「花畑クエスト」の文言と判定が食い違っていないこと ──────
+
+        /// <summary>
+        /// 花畑クエスト（TilePlacedCount / Field / 2）は、カテゴリがFieldのタイルを数える。
+        /// 現在Fieldカテゴリを持つタイルはすべて花の variant を使っているため、
+        /// 「花畑を2枚置く」という文言と実際の判定が一致している。
+        ///
+        /// ★花の無いFieldタイルを追加するとこの前提が崩れ、
+        ///   花が咲いていないのに花畑クエストが進むようになる。
+        ///   そのときはこのテストが落ちるので、
+        ///   文言を変えるか、Flowerの判定方法を別途設計すること
+        ///   （見た目だけの花＝visualOnly要素やlandDecorationは元々数えていない）。
+        /// </summary>
+        [Test]
+        public void EveryFieldTile_IsAFlowerField()
+        {
+            const string tileFolder = "Assets/_Game/ScriptableObjects/TileDefinitions";
+            var guids = UnityEditor.AssetDatabase.FindAssets("t:TileType", new[] { tileFolder });
+            Assert.Greater(guids.Length, 0, "タイル定義が1つも見つかりません");
+
+            int checkedCount = 0;
+            foreach (var guid in guids)
+            {
+                var path = UnityEditor.AssetDatabase.GUIDToAssetPath(guid);
+                var tile = UnityEditor.AssetDatabase.LoadAssetAtPath<TileType>(path);
+                if (tile == null || !tile.HasCategory(TileCategory.Field)) continue;
+
+                checkedCount++;
+                bool hasFlowers = false;
+                foreach (var e in tile.elements)
+                {
+                    if (e.variant == null || e.visualOnly) continue;
+                    if (e.variant.category != TileCategory.Field) continue;
+                    if (e.variant.propType == TilePropType.Flower) hasFlowers = true;
+                }
+
+                Assert.IsTrue(hasFlowers,
+                    tile.name + " はFieldカテゴリなのに花が咲きません。" +
+                    "花畑クエスト（Quest_FieldPlaced2）の文言と判定が食い違います");
+            }
+
+            Assert.Greater(checkedCount, 0, "Fieldカテゴリのタイルが1つも見つかりません");
         }
 
         // ── 4〜5. 本編シーンがSequence運用になっていること ──────────────
