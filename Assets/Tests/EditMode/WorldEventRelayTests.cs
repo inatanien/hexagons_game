@@ -123,7 +123,7 @@ namespace ElfVillage.Tests
             var relay = MakeRelay();
             using (var c = new Collector())
             {
-                EventBus.Publish(new RiverBridgeEvent(null, 5));
+                EventBus.Publish(new RiverBridgeEvent(null, null, 5));
                 InvokeLifecycle(relay, "OnDisable");
 
                 CollectionAssert.AreEqual(new[] { WorldEventKeys.Bridge }, c.Keys);
@@ -243,7 +243,7 @@ namespace ElfVillage.Tests
 
             using (var c = new Collector())
             {
-                EventBus.Publish(new RiverBridgeEvent(null, 5));
+                EventBus.Publish(new RiverBridgeEvent(null, null, 5));
                 EventBus.Publish(new TerrainSynergyEvent("ForestRiver", new List<HexTile>(), new List<HexTile>()));
                 PublishPlacement(MakeTile((TileCategory.Field, false)));
 

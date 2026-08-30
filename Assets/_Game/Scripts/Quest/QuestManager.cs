@@ -108,7 +108,7 @@ namespace ElfVillage.Quest
             if (_started) return;
             _started = true;
 
-            EventBus.Publish(new QuestStartedEvent(_activeQuest));
+            PublishStarted(_activeQuest);
         }
 
         private void OnDisable()
@@ -135,7 +135,7 @@ namespace ElfVillage.Quest
             if (!publishStarted) return;
 
             _started = true;
-            EventBus.Publish(new QuestStartedEvent(quest));
+            PublishStarted(quest);
         }
 
         private void UnsubscribeCurrent()
@@ -261,6 +261,31 @@ namespace ElfVillage.Quest
             ReportIncrement();
         }
 
+        // ── 盤面側への合図 ────────────────────────────────────────────
+        // Quest層はタイルを知らないので、「盤面の何を見ているか」だけをCoreの語彙で伝える。
+        // 受け取ったTiles側が、祝う対象のタイル集合を自分で選ぶ。
+
+        private void PublishStarted(QuestDefinition quest)
+        {
+            EventBus.Publish(new QuestStartedEvent(quest));
+            EventBus.Publish(new QuestFocusStartedEvent(BuildFocus(quest.condition)));
+        }
+
+        private static QuestFocus BuildFocus(QuestCondition condition)
+        {
+            return new QuestFocus(ToFocusSource(condition.kind), condition.category, condition.eventKey);
+        }
+
+        private static QuestFocusSource ToFocusSource(QuestConditionKind kind)
+        {
+            switch (kind)
+            {
+                case QuestConditionKind.TilePlacedCount: return QuestFocusSource.TilePlacement;
+                case QuestConditionKind.EventOccurrence: return QuestFocusSource.WorldEvent;
+                default:                                 return QuestFocusSource.Cluster;
+            }
+        }
+
         /// <summary>
         /// 出来事キーの一致判定。前後の空白を落とし、大文字小文字は区別しない。
         /// SynergyIdはInspectorへ、eventKeyはSOへそれぞれ手入力される文字列なので、
@@ -296,6 +321,10 @@ namespace ElfVillage.Quest
                 _isCompleted = true;
                 Debug.Log($"[QuestManager] クエスト達成: {_activeQuest.title}（{_currentCount}/{Condition.targetCount}）");
                 EventBus.Publish(new QuestCompletedEvent(_activeQuest));
+
+                // 達成を世界の見た目で祝うための合図。
+                // 報酬やUIより後に流すのは、まず達成そのものを届けたいから
+                EventBus.Publish(new QuestCelebrationEvent(BuildFocus(Condition), _activeQuest.title));
             }
         }
     }

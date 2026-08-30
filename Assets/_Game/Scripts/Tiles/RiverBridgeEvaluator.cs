@@ -36,7 +36,7 @@ namespace ElfVillage.Tiles
 
             if (!_gridManager.TryGetTile(evt.Coord, out var placedTile)) return;
 
-            EventBus.Publish(new RiverBridgeEvent(placedTile, cluster.Count));
+            EventBus.Publish(new RiverBridgeEvent(placedTile, cluster, cluster.Count));
         }
 
         // ── BFS: 配置タイルから川種別すべてを対象に連結クラスターを取得 ──

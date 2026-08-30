@@ -26,8 +26,8 @@ namespace ElfVillage.Tiles
 
         private void OnRiverBridge(RiverBridgeEvent evt)
         {
-            if (evt.Tile == null) return;
-            SpawnBridge(evt.Tile);
+            if (evt.BridgeTile == null) return;
+            SpawnBridge(evt.BridgeTile);
         }
 
         // ── 橋の生成 ─────────────────────────────────────────────────────
