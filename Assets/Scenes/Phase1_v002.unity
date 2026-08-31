@@ -1813,7 +1813,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ec67acfcd60f6af47b2cdc7478cf88cb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _traceDuration: 1.1
+  _traceDuration: 1.4
   _fadeOutDuration: 0.35
   _tailRatio: 0.25
   _lightColor: {r: 1, g: 0.94, b: 0.72, a: 1}

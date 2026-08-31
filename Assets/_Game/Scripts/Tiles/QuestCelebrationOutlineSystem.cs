@@ -24,7 +24,7 @@ namespace ElfVillage.Tiles
     {
         [Header("走る時間")]
         [Tooltip("光が外周を一周するまでの秒数")]
-        [SerializeField] private float _traceDuration = 1.1f;
+        [SerializeField] private float _traceDuration = 1.4f;
 
         [Tooltip("一周したあと、尾が消えきるまでの秒数")]
         [SerializeField] private float _fadeOutDuration = 0.35f;
