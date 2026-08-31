@@ -1617,6 +1617,7 @@ GameObject:
   - component: {fileID: 265723553}
   - component: {fileID: 265723555}
   - component: {fileID: 265723554}
+  - component: {fileID: 265723556}
   m_Layer: 0
   m_Name: TerrainGrowth
   m_TagString: Untagged
@@ -1831,6 +1832,31 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0d917e5ef69f09a45883a67dc6fe3a44, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!114 &265723556
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 265723542}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c400d5b10257b23468baccbaaced7f74, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _startDelay: 0.15
+  _riseDuration: 0.45
+  _fadeDuration: 1.6
+  _density: 1
+  _minRayCount: 3
+  _maxRayCount: 20
+  _height: 4.5
+  _baseWidth: 0.8
+  _topWidth: 1.3
+  _sizeJitter: 0.15
+  _lightColor: {r: 1, g: 0.94, b: 0.72, a: 1}
+  _intensity: 0.6
+  _baseLift: 0.01
 --- !u!1 &287281556
 GameObject:
   m_ObjectHideFlags: 0

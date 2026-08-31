@@ -6,17 +6,17 @@
 //         外周は反時計回り、穴は時計回りに揃っているので、
 //         どちらも「材質を左手に見ながら走る」形になる。ここで向きを再判定しない。
 //
-//       ★角のワールド座標は、タイルの実際の transform と outerRadius から求める。
-//         HexGridManager.tileSize（グリッドの間隔）と HexTile.outerRadius（見た目の大きさ）は
-//         別々に設定できるため、座標だけから角を計算すると、
-//         2つがずれている設定では輪郭だけが実際の六角形から浮く。
-//         なぞりたいのは「見えている六角形の縁」なので、見えているものを基準にする。
+//       ★縁の座標は TileOutlineGeometry から取る。
+//         祝福の光柱も同じ縁を基準にするので、求め方が2か所に割れないようまとめてある。
+//
+//       ★なぞり終わったら QuestOutlineTraceCompletedEvent を出す。
+//         渡すのは「終わった」という事実だけで、輪の座標や内部の持ち方は渡さない。
+//         受け取る側が自分で外周を求めるので、こちらの作りを変えても道連れにならない。
 
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using ElfVillage.Core;
-using ElfVillage.HexGrid;
 
 namespace ElfVillage.Tiles
 {
@@ -70,7 +70,7 @@ namespace ElfVillage.Tiles
             // 走っている途中で次の祝いが来たら、前のものは畳んでから差し替える
             StopCurrent();
 
-            var loops = BuildWorldLoops(evt.Tiles);
+            var loops = TileOutlineGeometry.BuildWorldLoops(evt.Tiles, _lift);
             if (loops.Count == 0) return;
 
             _current = new GameObject("CelebrationOutline");
@@ -98,63 +98,6 @@ namespace ElfVillage.Tiles
                 Destroy(_current);
                 _current = null;
             }
-        }
-
-        // ── 対象タイル → ワールド座標の輪 ─────────────────────────────
-
-        private List<List<Vector3>> BuildWorldLoops(IReadOnlyList<HexTile> tiles)
-        {
-            var result = new List<List<Vector3>>();
-            if (tiles == null || tiles.Count == 0) return result;
-
-            // 重複や欠けたタイルが混じっても、輪が二重になったり落ちたりしないようにする
-            var byCoord = new Dictionary<HexCoord, HexTile>();
-            foreach (var tile in tiles)
-            {
-                if (tile == null) continue;
-                byCoord[tile.Data.coord] = tile;
-            }
-            if (byCoord.Count == 0) return result;
-
-            foreach (var loop in HexBoundaryBuilder.BuildLoops(byCoord.Keys))
-            {
-                var points = new List<Vector3>(loop.Count);
-                foreach (var corner in loop)
-                    if (TryCornerWorldPosition(corner, byCoord, out var point)) points.Add(point);
-
-                if (points.Count >= 3) result.Add(points);
-            }
-
-            return result;
-        }
-
-        /// <summary>
-        /// 角のワールド座標を、その角に集まるタイルのうち実在するものから求める。
-        /// 実際のメッシュと同じ「中心 + 外接半径 × 60°×index」で置くので、
-        /// グリッド間隔と見た目の大きさがずれている設定でも縁から浮かない。
-        /// </summary>
-        private bool TryCornerWorldPosition(HexCorner corner, Dictionary<HexCoord, HexTile> tiles,
-                                             out Vector3 position)
-        {
-            foreach (var coord in new[] { corner.A, corner.B, corner.C })
-            {
-                if (!tiles.TryGetValue(coord, out var tile) || tile == null) continue;
-
-                for (int i = 0; i < 6; i++)
-                {
-                    if (HexCorner.Of(coord, i) != corner) continue;
-
-                    float angle = Mathf.Deg2Rad * (60f * i);
-                    float y     = HexMeshBuilder.TopY(tile.TileHeight) + _lift;
-
-                    position = tile.transform.position + new Vector3(
-                        tile.OuterRadius * Mathf.Cos(angle), y, tile.OuterRadius * Mathf.Sin(angle));
-                    return true;
-                }
-            }
-
-            position = default;
-            return false;
         }
 
         // ── 描画 ──────────────────────────────────────────────────────
@@ -215,6 +158,12 @@ namespace ElfVillage.Tiles
                 yield return null;
             }
 
+            // ★なぞり終わったこの瞬間に知らせる。尾が消えるのは待たない。
+            //   祝福の光柱は「なぞり終わった → 少し間を置いて立ち上がる」ので、
+            //   ここで知らせると尾の消えぎわと重なって演出が途切れない。
+            //   渡すのは事実だけで、輪の座標は渡さない（あちらは自分で求める）
+            EventBus.Publish(new QuestOutlineTraceCompletedEvent());
+
             // 先端は始点に戻ったまま、尾が追いついて消える
             float fade = 0f;
             while (fade < _fadeOutDuration)
@@ -256,7 +205,11 @@ namespace ElfVillage.Tiles
 
             // 加算合成。暗い地面でも光って見え、Bloomが拾ってくれる
             if (mat.HasProperty("_Surface")) mat.SetFloat("_Surface", 1f);
-            if (mat.HasProperty("_Blend"))   mat.SetFloat("_Blend", 1f);
+            // ★_Blendは 0=Alpha 1=Premultiply 2=Additive 3=Multiply。
+            //   ここを1にしていたせいで、加算のつもりが不透明に近い合成になり、
+            //   光ではなく「すりガラスの板」に見えていた。
+            //   SrcBlend/DstBlendだけ指定しても、この値からシェーダ側が上書きしてくる
+            if (mat.HasProperty("_Blend"))   mat.SetFloat("_Blend", 2f);
             if (mat.HasProperty("_SrcBlend")) mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
             if (mat.HasProperty("_DstBlend")) mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.One);
             if (mat.HasProperty("_ZWrite"))   mat.SetFloat("_ZWrite", 0f);

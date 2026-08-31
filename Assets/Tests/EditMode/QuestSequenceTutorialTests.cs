@@ -174,6 +174,7 @@ namespace ElfVillage.Tests
             {
                 "Assets/_Game/Scripts/Tiles/QuestTileFocusTracker.cs",
                 "Assets/_Game/Scripts/Tiles/QuestCelebrationOutlineSystem.cs",
+                "Assets/_Game/Scripts/Tiles/QuestCelebrationRaySystem.cs",
             })
             {
                 string guid = UnityEditor.AssetDatabase.AssetPathToGUID(scriptPath);
