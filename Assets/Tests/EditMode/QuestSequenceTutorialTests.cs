@@ -160,6 +160,29 @@ namespace ElfVillage.Tests
                 "（0個ならクエストが始まらず、2個なら同じクエストが二重に進む）");
         }
 
+        /// <summary>
+        /// 達成演出の2コンポーネントが本編シーンへ1つずつ置かれていることを固定する。
+        /// Trackerが無いと祝う対象が決まらず、Outlineが無いと光が出ない。
+        /// 2つあると同じ祝いを二重に処理してしまう。
+        /// </summary>
+        [Test]
+        public void Scene_Phase1v002_HasExactlyOneCelebrationComponentEach()
+        {
+            string sceneText = ReadScene();
+
+            foreach (var scriptPath in new[]
+            {
+                "Assets/_Game/Scripts/Tiles/QuestTileFocusTracker.cs",
+                "Assets/_Game/Scripts/Tiles/QuestCelebrationOutlineSystem.cs",
+            })
+            {
+                string guid = UnityEditor.AssetDatabase.AssetPathToGUID(scriptPath);
+                Assert.IsFalse(string.IsNullOrEmpty(guid), scriptPath + " が見つかりません");
+                Assert.AreEqual(1, CountOccurrences(sceneText, guid),
+                    $"{ScenePath} に {System.IO.Path.GetFileNameWithoutExtension(scriptPath)} はちょうど1つ配置されているはず");
+            }
+        }
+
         [Test]
         public void Scene_Phase1v002_QuestManagerHasNoActiveQuest()
         {
