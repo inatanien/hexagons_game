@@ -1,5 +1,11 @@
 // 役割: EdgeMatcher の単体テスト（EditMode）。
-//       辺一致・不一致・回転あり・隣接なしのケースを検証する。
+//
+//       ★「置けるか」と「辺が合うか」は別の判定であることを守る。
+//         IsPlaceable   ... 配置済みタイルへ隣接しているか（最初の1枚は自由）
+//         IsEdgeCompatible ... 隣接タイルと辺が合うか（スコアリングとプレビューの演出用）
+//         辺が合わなくても置ける。プレイヤーの手を止めない、という本作の方針から来ている。
+//
+//       回転あり・隣接なしのケース、回転済みタイル同士の接続判定もここで見る。
 
 using System.Collections.Generic;
 using NUnit.Framework;
@@ -51,7 +57,7 @@ namespace ElfVillage.Tests
         }
 
         [Test]
-        public void IsPlaceable_MismatchedNeighbor_ReturnsFalse()
+        public void IsPlaceable_MismatchedNeighbor_StillReturnsTrue()
         {
             var forestType = MakeTileType(EdgeType.Forest);
             var fieldType  = MakeTileType(EdgeType.Field);
@@ -60,8 +66,13 @@ namespace ElfVillage.Tests
             {
                 [neighborCoord] = MakePlacedTile(neighborCoord, forestType)
             };
-            // Forest隣に Field を置こうとするので NG
-            Assert.IsFalse(EdgeMatcher.IsPlaceable(HexCoord.Zero, fieldType, 0, grid));
+
+            // ★辺が合わなくても置ける。配置の条件は「配置済みタイルへ隣接していること」だけ。
+            //   辺の一致はIsEdgeCompatibleが受け持ち、スコアリングとプレビューのグロー表示に使う。
+            //   ここをfalseにすると「置ける場所を探させるゲーム」になり、
+            //   急かさない・ストレスを与えないという方針から外れる
+            Assert.IsTrue(EdgeMatcher.IsPlaceable(HexCoord.Zero, fieldType, 0, grid),
+                "辺が合わないことは配置を妨げないはず");
         }
 
         [Test]
@@ -82,6 +93,87 @@ namespace ElfVillage.Tests
                 [neighborCoord] = unplacedTile
             };
             Assert.IsTrue(EdgeMatcher.IsPlaceable(HexCoord.Zero, fieldType, 0, grid));
+        }
+
+        // ── IsEdgeCompatible ────────────────────────────────────────────
+        // 辺の一致は配置を妨げなくなった代わりに、こちらが受け持っている。
+        // 「合わない辺は合わないと分かる」ことは、スコアリングとプレビューの演出の土台なので
+        // ここで固定しておく。
+
+        [Test]
+        public void IsEdgeCompatible_MismatchedNeighbor_ReturnsFalse()
+        {
+            var forestType = MakeTileType(EdgeType.Forest);
+            var fieldType  = MakeTileType(EdgeType.Field);
+            var neighborCoord = HexCoord.Zero.Neighbor(0);
+            var grid = new Dictionary<HexCoord, HexTile>
+            {
+                [neighborCoord] = MakePlacedTile(neighborCoord, forestType)
+            };
+
+            Assert.IsFalse(EdgeMatcher.IsEdgeCompatible(HexCoord.Zero, fieldType, 0, grid),
+                "Forestの隣にFieldなので辺は合わないはず");
+        }
+
+        [Test]
+        public void IsEdgeCompatible_MatchingNeighbor_ReturnsTrue()
+        {
+            var forestType = MakeTileType(EdgeType.Forest);
+            var neighborCoord = HexCoord.Zero.Neighbor(0);
+            var grid = new Dictionary<HexCoord, HexTile>
+            {
+                [neighborCoord] = MakePlacedTile(neighborCoord, forestType)
+            };
+
+            Assert.IsTrue(EdgeMatcher.IsEdgeCompatible(HexCoord.Zero, forestType, 0, grid));
+        }
+
+        [Test]
+        public void IsEdgeCompatible_NoNeighbors_ReturnsTrue()
+        {
+            var grid = new Dictionary<HexCoord, HexTile>();
+            Assert.IsTrue(EdgeMatcher.IsEdgeCompatible(HexCoord.Zero, MakeTileType(EdgeType.Forest), 0, grid),
+                "隣が無ければ突き合わせる相手もいないので合っている扱い");
+        }
+
+        [Test]
+        public void IsEdgeCompatible_SameCategory_IgnoresEdgeTypes()
+        {
+            // 同じカテゴリのタイル同士は、辺の種別が違っても互換として扱う
+            // （景観違いの同種タイルが並んだときに、境目で不一致と言われないようにするため）
+            var a = MakeTileType(EdgeType.Forest);
+            var b = MakeTileType(EdgeType.Field);
+            a.tileCategory = "Forest";
+            b.tileCategory = "Forest";
+
+            var neighborCoord = HexCoord.Zero.Neighbor(0);
+            var grid = new Dictionary<HexCoord, HexTile>
+            {
+                [neighborCoord] = MakePlacedTile(neighborCoord, a)
+            };
+
+            Assert.IsTrue(EdgeMatcher.IsEdgeCompatible(HexCoord.Zero, b, 0, grid),
+                "同一カテゴリなら辺の種別によらず互換のはず");
+        }
+
+        [Test]
+        public void IsEdgeCompatible_UnplacedNeighborIgnored_ReturnsTrue()
+        {
+            var forestType = MakeTileType(EdgeType.Forest);
+            var fieldType  = MakeTileType(EdgeType.Field);
+            var neighborCoord = HexCoord.Zero.Neighbor(0);
+
+            var go = new GameObject();
+            var unplaced = go.AddComponent<HexTile>();
+            unplaced.Initialize(neighborCoord, 1f);   // Place()は呼ばない
+
+            var grid = new Dictionary<HexCoord, HexTile>
+            {
+                [neighborCoord] = unplaced
+            };
+
+            Assert.IsTrue(EdgeMatcher.IsEdgeCompatible(HexCoord.Zero, fieldType, 0, grid),
+                "未配置のタイルは突き合わせの相手にしないはず");
         }
 
         [Test]
