@@ -144,13 +144,13 @@ namespace は `ElfVillage.<AssemblyName>`。**この依存方向を越えるコ�
 
 接続しない場合の代替手段:
 
-- 現在の見た目 → `Assets/Screenshots/` の画像を見る
+- 現在の見た目 → `Docs/Screenshots/` の画像を見る（README に何が写っているかの一覧あり）
 - コンソールエラー数・テスト結果 → ユーザーに取得を依頼する
 
 ## 現状把握の入り口
 
 1. `HANDOVER.md` — 現在地のまとめ。**まずこれを読む。**
-2. `Assets/Screenshots/` — 実際の画面。
+2. `Docs/Screenshots/` — 実際の画面（厳選ぶん）。生キャプチャ全部は `ScreenshotWork/`（Git管理外）。
 3. `git log --oneline -20` — 直近の作業内容。
 
 ※ `Vision.md.txt` と `Roadmap.md.txt` は空ファイル、`GameDesign.md.txt` は

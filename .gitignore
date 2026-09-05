@@ -116,3 +116,9 @@ InitTestScene*.unity*
 /BlenderWork/Export/
 /BlenderWork/Work/
 *.blend
+
+# スクリーンショット作業フォルダ（Assets/ の外に置く。詳細は ScreenshotWork/README.md）
+# 検証用の生キャプチャは追跡しない。BlenderWork と同じ理由で、
+# Git LFS 未導入のため数百MBのバイナリを履歴へ入れない。
+# 「今の見た目」を伝える厳選ぶんだけ Docs/Screenshots/ へコピーして追跡する。
+/ScreenshotWork/
