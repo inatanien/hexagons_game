@@ -20,6 +20,9 @@ namespace ElfVillage.Tests
     {
         private const string Dir = "Assets/_Game/ScriptableObjects/TileDefinitions/";
 
+        /// <summary>ForestRiver シナジーの登録内容を持つ本編シーン。</summary>
+        private const string ScenePath = "Assets/Scenes/Phase1_v002.unity";
+
         /// <summary>川として扱われるべき9種（既存3 + 景観6）。</summary>
         public static readonly string[] RiverAssets =
         {
@@ -169,33 +172,51 @@ namespace ElfVillage.Tests
         {
             // SynergyEvaluator は森×川専用ではない汎用クラスなので、River固有の分岐は入れず
             // Scene の _typesB へ登録する方式を採っている。その登録漏れをここで検出する。
-            // ★PlayModeテストは専用の一時シーンで走り実シーンを読めないため、EditMode側に置いている。
-            var scene = UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene();
-            if (scene.name != "Phase1_v002")
-                Assert.Ignore($"Phase1_v002 が開かれていないためスキップ（現在: {scene.name}）");
+            //
+            // ★EditModeテストは Test Framework が用意する「名前なしの一時シーン」の上で走る。
+            //   エディタで Phase1_v002 を開いていても GetActiveScene() では掴めず、
+            //   name も path も空文字が返る（実測）。
+            //   以前はここを name で判定して Assert.Ignore していたため、
+            //   このテストは書かれてから一度も実行されていなかった。
+            //   対象シーンを Additive で開いて読み、finally で必ず閉じる。
+            //   Additive なので実行中の一時シーンを置き換えず、エディタの状態も汚さない。
+            var scene = UnityEditor.SceneManagement.EditorSceneManager.OpenScene(
+                ScenePath, UnityEditor.SceneManagement.OpenSceneMode.Additive);
+            try
+            {
+                Assert.IsTrue(scene.IsValid() && scene.isLoaded, ScenePath + " を開けなかった");
 
-            SynergyEvaluator forestRiver = null;
-            foreach (var se in Object.FindObjectsByType<SynergyEvaluator>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-                if (new UnityEditor.SerializedObject(se).FindProperty("_synergyId").stringValue == "ForestRiver")
-                    forestRiver = se;
-            Assert.IsNotNull(forestRiver, "ForestRiver の SynergyEvaluator がシーンに無い");
+                // FindObjectsByType は読み込み済みの全シーンを横断するため、対象シーン配下だけを見る。
+                SynergyEvaluator forestRiver = null;
+                foreach (var root in scene.GetRootGameObjects())
+                    foreach (var se in root.GetComponentsInChildren<SynergyEvaluator>(true))
+                        if (new UnityEditor.SerializedObject(se).FindProperty("_synergyId").stringValue == "ForestRiver")
+                            forestRiver = se;
+                Assert.IsNotNull(forestRiver, "ForestRiver の SynergyEvaluator がシーンに無い");
 
-            var so     = new UnityEditor.SerializedObject(forestRiver);
-            var typesA = so.FindProperty("_typesA");
-            var typesB = so.FindProperty("_typesB");
+                var so     = new UnityEditor.SerializedObject(forestRiver);
+                var typesA = so.FindProperty("_typesA");
+                var typesB = so.FindProperty("_typesB");
 
-            System.Func<UnityEditor.SerializedProperty, TileType, bool> Contains = (arr, t) => {
-                for (int i = 0; i < arr.arraySize; i++)
-                    if (arr.GetArrayElementAtIndex(i).objectReferenceValue == t) return true;
-                return false; };
+                System.Func<UnityEditor.SerializedProperty, TileType, bool> Contains = (arr, t) => {
+                    for (int i = 0; i < arr.arraySize; i++)
+                        if (arr.GetArrayElementAtIndex(i).objectReferenceValue == t) return true;
+                    return false; };
 
-            // 川9種すべてが River 側に居ること（既存3種の回帰も兼ねる）
-            foreach (var name in RiverAssets)
-                Assert.IsTrue(Contains(typesB, Load(name)), $"{name} が ForestRiver シナジーの River 側に居ない");
+                // 川9種すべてが River 側に居ること（既存3種の回帰も兼ねる）
+                foreach (var name in RiverAssets)
+                    Assert.IsTrue(Contains(typesB, Load(name)), $"{name} が ForestRiver シナジーの River 側に居ない");
 
-            // 景観川は Forest 側には居ないこと（見た目に木があっても森ではない）
-            foreach (var name in RiverAssets)
-                Assert.IsFalse(Contains(typesA, Load(name)), $"{name} が Forest 側に登録されている");
+                // 景観川は Forest 側には居ないこと（見た目に木があっても森ではない）
+                foreach (var name in RiverAssets)
+                    Assert.IsFalse(Contains(typesA, Load(name)), $"{name} が Forest 側に登録されている");
+            }
+            finally
+            {
+                // 第2引数 true でシーンをメモリから完全に取り除く（開きっぱなしにしない）。
+                if (scene.IsValid())
+                    UnityEditor.SceneManagement.EditorSceneManager.CloseScene(scene, true);
+            }
         }
 
         [Test]
