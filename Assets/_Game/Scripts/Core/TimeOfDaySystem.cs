@@ -32,42 +32,61 @@ namespace ElfVillage.Core
             public Color lightColor;
             public float lightIntensity;
             public Color fogColor;
+
+            // ★空はパノラマ画像ではなく3色のグラデーションで作る。
+            //   背景に描かれた木や草花が盤面のタイルと視線を取り合わないようにするため。
+            //   時間帯の変化はテクスチャの差し替えではなく、この色を補間して表す
+            public Color skyZenith;    // 天頂
+            public Color skyHorizon;   // 地平
+            public Color skyGround;    // 地平より下
         }
 
         [Header("🌅 朝 — 朝靄の森")]
         [SerializeField] private TimeSettings _morning = new TimeSettings
         {
-            ambientColor   = new Color(0.85f, 0.62f, 0.38f),
+            ambientColor   = new Color(0.50f, 0.42f, 0.34f),
             lightColor     = new Color(1.00f, 0.78f, 0.45f),
-            lightIntensity = 0.8f,
+            lightIntensity = 1.15f,
             fogColor       = new Color(0.90f, 0.75f, 0.60f),
+            skyZenith      = new Color(0.35f, 0.58f, 0.88f),
+            skyHorizon     = new Color(0.72f, 0.86f, 0.96f),
+            skyGround      = new Color(0.55f, 0.70f, 0.82f),
         };
 
         [Header("☀️ 昼 — 木漏れ日の昼")]
         [SerializeField] private TimeSettings _afternoon = new TimeSettings
         {
-            ambientColor   = new Color(0.72f, 0.80f, 0.90f),
+            ambientColor   = new Color(0.46f, 0.54f, 0.64f),
             lightColor     = new Color(1.00f, 0.98f, 0.92f),
-            lightIntensity = 1.2f,
+            lightIntensity = 1.5f,
             fogColor       = new Color(0.75f, 0.85f, 0.95f),
+            skyZenith      = new Color(0.13f, 0.38f, 0.82f),
+            skyHorizon     = new Color(0.45f, 0.70f, 0.94f),
+            skyGround      = new Color(0.35f, 0.55f, 0.78f),
         };
 
         [Header("🌇 夕方 — 黄金色の夕暮れ")]
         [SerializeField] private TimeSettings _evening = new TimeSettings
         {
-            ambientColor   = new Color(0.80f, 0.38f, 0.12f),
+            ambientColor   = new Color(0.44f, 0.26f, 0.14f),
             lightColor     = new Color(1.00f, 0.50f, 0.18f),
-            lightIntensity = 0.55f,
+            lightIntensity = 0.9f,
             fogColor       = new Color(0.88f, 0.48f, 0.20f),
+            skyZenith      = new Color(0.72f, 0.34f, 0.18f),
+            skyHorizon     = new Color(1.00f, 0.60f, 0.26f),
+            skyGround      = new Color(0.62f, 0.32f, 0.22f),
         };
 
         [Header("🌌 夜 — 精霊が舞う星空")]
         [SerializeField] private TimeSettings _night = new TimeSettings
         {
-            ambientColor   = new Color(0.04f, 0.04f, 0.12f),
+            ambientColor   = new Color(0.05f, 0.06f, 0.16f),
             lightColor     = new Color(0.28f, 0.30f, 0.55f),
-            lightIntensity = 0.08f,
+            lightIntensity = 0.18f,
             fogColor       = new Color(0.03f, 0.04f, 0.10f),
+            skyZenith      = new Color(0.10f, 0.08f, 0.20f),
+            skyHorizon     = new Color(0.24f, 0.20f, 0.38f),
+            skyGround      = new Color(0.15f, 0.12f, 0.24f),
         };
 
         private TimeOfDayEvent.Phase _currentPhase = TimeOfDayEvent.Phase.Morning;
@@ -80,8 +99,15 @@ namespace ElfVillage.Core
         public static TimeOfDayEvent.Phase Current { get; private set; }
             = TimeOfDayEvent.Phase.Morning;
 
-        // ランタイムで生成するブレンド用マテリアル（シーンには保存しない）
-        private Material _blendMat;
+        [Header("空のグラデーション")]
+        [Tooltip("地平線からどれだけの高さで天頂の色へ移りきるか。小さいほど空の色が下まで降りてくる")]
+        [SerializeField, Range(0.05f, 1.5f)] private float _skyHorizonWidth = 0.30f;
+
+        [Tooltip("地平線から下へのぼかし幅")]
+        [SerializeField, Range(0.05f, 1.5f)] private float _skyGroundWidth = 0.25f;
+
+        // ランタイムで生成する空のマテリアル（シーンには保存しない）
+        private Material _skyMat;
 
         private void Start()
         {
@@ -89,38 +115,40 @@ namespace ElfVillage.Core
             if (_sun == null)
                 _sun = FindFirstObjectByType<Light>();
 
-            InitBlendSkybox();
+            InitGradientSkybox();
             ApplyImmediate(_morning);
             StartCoroutine(CycleRoutine());
         }
 
         private void OnDestroy()
         {
-            if (_blendMat != null) Destroy(_blendMat);
+            if (_skyMat != null) Destroy(_skyMat);
         }
 
         // ── スカイボックス初期化 ──────────────────────────────────────
 
-        private void InitBlendSkybox()
+        private void InitGradientSkybox()
         {
-            var shader = Shader.Find("Custom/SkyboxBlend");
+            var shader = Shader.Find("Custom/SkyboxGradient");
             if (shader == null)
             {
-                // シェーダーが見つからない場合は直接スワップにフォールバック
+                // シェーダーが見つからない場合は、従来のパノラマへフォールバックする
+                Debug.LogWarning("[TimeOfDaySystem] Custom/SkyboxGradient が見つかりません。パノラマの空へ戻します。", this);
                 ApplySkyboxDirect(TimeOfDayEvent.Phase.Morning);
                 return;
             }
 
-            _blendMat      = new Material(shader) { name = "SkyboxBlend_Runtime" };
-            _blendMat.SetFloat("_Exposure", 1f);
-            _blendMat.SetFloat("_Rotation", 0f);
+            _skyMat = new Material(shader) { name = "SkyGradient_Runtime" };
+            _skyMat.SetFloat("_HorizonWidth", _skyHorizonWidth);
+            _skyMat.SetFloat("_GroundWidth",  _skyGroundWidth);
+            RenderSettings.skybox = _skyMat;
 
-            var tex = GetSkyboxTexture(TimeOfDayEvent.Phase.Morning);
-            _blendMat.SetTexture("_MainTex",   tex);
-            _blendMat.SetTexture("_SecondTex", tex);
-            _blendMat.SetFloat("_Blend", 0f);
-
-            RenderSettings.skybox = _blendMat;
+            // ★環境光は空から拾わず、時間帯ごとのambientColorを使う。
+            //   グラデーションの空は画面の大半が明るい一色なので、そこから環境光を作ると
+            //   全体が持ち上がってタイルの地面が白く飛ぶ（実機で確認）。
+            //   ambientColorは元から時間帯ごとに用意されていたが、
+            //   Skyboxモードでは無視されていた。ここで実際に効くようにする
+            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
         }
 
         // ── メインサイクル ────────────────────────────────────────────
@@ -145,37 +173,15 @@ namespace ElfVillage.Core
             var   from    = GetCurrentLiveSettings();
             float elapsed = 0f;
 
-            // ブレンドシェーダーがある場合：遷移中に 2 テクスチャをクロスフェード
-            if (_blendMat != null)
-            {
-                _blendMat.SetTexture("_MainTex",   GetSkyboxTexture(_currentPhase));
-                _blendMat.SetTexture("_SecondTex", GetSkyboxTexture(targetPhase));
-                _blendMat.SetFloat("_Blend", 0f);
-            }
-
             while (elapsed < _transitionDuration)
             {
                 elapsed += Time.deltaTime;
                 float t  = Mathf.SmoothStep(0f, 1f, elapsed / _transitionDuration);
                 ApplyLerp(from, to, t);
-                if (_blendMat != null) _blendMat.SetFloat("_Blend", t);
                 yield return null;
             }
 
             ApplyImmediate(to);
-
-            // 遷移完了後：_MainTex を新しいテクスチャに更新してブレンドリセット
-            if (_blendMat != null)
-            {
-                var tex = GetSkyboxTexture(targetPhase);
-                _blendMat.SetTexture("_MainTex",   tex);
-                _blendMat.SetTexture("_SecondTex", tex);
-                _blendMat.SetFloat("_Blend", 0f);
-            }
-            else
-            {
-                ApplySkyboxDirect(targetPhase);
-            }
         }
 
         // ── 設定適用 ─────────────────────────────────────────────────
@@ -184,6 +190,7 @@ namespace ElfVillage.Core
         {
             RenderSettings.ambientLight = s.ambientColor;
             RenderSettings.fogColor     = s.fogColor;
+            ApplySky(s.skyZenith, s.skyHorizon, s.skyGround);
             if (_sun != null)
             {
                 _sun.color     = s.lightColor;
@@ -195,6 +202,9 @@ namespace ElfVillage.Core
         {
             RenderSettings.ambientLight = Color.Lerp(from.ambientColor, to.ambientColor, t);
             RenderSettings.fogColor     = Color.Lerp(from.fogColor,     to.fogColor,     t);
+            ApplySky(Color.Lerp(from.skyZenith,  to.skyZenith,  t),
+                     Color.Lerp(from.skyHorizon, to.skyHorizon, t),
+                     Color.Lerp(from.skyGround,  to.skyGround,  t));
             if (_sun != null)
             {
                 _sun.color     = Color.Lerp(from.lightColor, to.lightColor, t);
@@ -202,7 +212,22 @@ namespace ElfVillage.Core
             }
         }
 
-        // ブレンドシェーダーが使えない場合の直接スワップ（フォールバック）
+        /// <summary>
+        /// 空の3色を差し替える。空は背景を描くだけで、明るさには関与しない
+        /// （環境光はambientColor、陰影は太陽が受け持つ）。
+        /// </summary>
+        private void ApplySky(Color zenith, Color horizon, Color ground)
+        {
+            if (_skyMat == null) return;
+
+            _skyMat.SetColor("_ZenithColor",  zenith);
+            _skyMat.SetColor("_HorizonColor", horizon);
+            _skyMat.SetColor("_GroundColor",  ground);
+        }
+
+        // 空のシェーダーが使えない場合の直接スワップ（フォールバック）
+        // ★通常は使わない。グラデーションの空へ移行したため、
+        //   パノラマ画像（_Game/Art/HDRI）は非常時の受け皿としてだけ残してある
         private void ApplySkyboxDirect(TimeOfDayEvent.Phase phase)
         {
             var mat = GetSkyboxMaterial(phase);
@@ -210,12 +235,6 @@ namespace ElfVillage.Core
         }
 
         // ── ヘルパー ────────────────────────────────────────────────
-
-        private Texture GetSkyboxTexture(TimeOfDayEvent.Phase phase)
-        {
-            var mat = GetSkyboxMaterial(phase);
-            return mat != null ? mat.GetTexture("_MainTex") : null;
-        }
 
         private Material GetSkyboxMaterial(TimeOfDayEvent.Phase phase)
         {
@@ -228,6 +247,10 @@ namespace ElfVillage.Core
             }
         }
 
+        /// <summary>今の空の色を1つ取り出す。空がまだ無い場合は黒を返さない（遷移が沈むため）。</summary>
+        private Color GetSkyColor(string property)
+            => _skyMat != null ? _skyMat.GetColor(property) : Color.white;
+
         private TimeSettings GetCurrentLiveSettings()
         {
             return new TimeSettings
@@ -236,6 +259,13 @@ namespace ElfVillage.Core
                 lightColor     = _sun != null ? _sun.color     : Color.white,
                 lightIntensity = _sun != null ? _sun.intensity : 1f,
                 fogColor       = RenderSettings.fogColor,
+
+                // ★空の色も「今の値」を拾う。
+                //   ここを埋めないと構造体の既定値（黒）が遷移の起点になり、
+                //   時間帯が切り替わる瞬間だけ背景が黒く沈んでから新しい色へ戻る
+                skyZenith      = GetSkyColor("_ZenithColor"),
+                skyHorizon     = GetSkyColor("_HorizonColor"),
+                skyGround      = GetSkyColor("_GroundColor"),
             };
         }
 

@@ -15,16 +15,16 @@ RenderSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 10
   m_Fog: 0
-  m_FogColor: {r: 0.5, g: 0.5, b: 0.5, a: 1}
+  m_FogColor: {r: 0.9, g: 0.75, b: 0.6, a: 1}
   m_FogMode: 3
   m_FogDensity: 0.01
   m_LinearFogStart: 0
   m_LinearFogEnd: 300
-  m_AmbientSkyColor: {r: 0.212, g: 0.227, b: 0.259, a: 1}
+  m_AmbientSkyColor: {r: 0.5, g: 0.42, b: 0.34, a: 1}
   m_AmbientEquatorColor: {r: 0.114, g: 0.125, b: 0.133, a: 1}
   m_AmbientGroundColor: {r: 0.047, g: 0.043, b: 0.035, a: 1}
   m_AmbientIntensity: 1
-  m_AmbientMode: 0
+  m_AmbientMode: 3
   m_SubtractiveShadowColor: {r: 0.42, g: 0.478, b: 0.627, a: 1}
   m_SkyboxMaterial: {fileID: 10304, guid: 0000000000000000f000000000000000, type: 0}
   m_HaloStrength: 0.5
@@ -2555,8 +2555,8 @@ Light:
   m_Enabled: 1
   serializedVersion: 11
   m_Type: 1
-  m_Color: {r: 1, g: 1, b: 1, a: 1}
-  m_Intensity: 2
+  m_Color: {r: 1, g: 0.78, b: 0.45, a: 1}
+  m_Intensity: 1.15
   m_Range: 10
   m_SpotAngle: 30
   m_InnerSpotAngle: 21.80208
@@ -8448,25 +8448,39 @@ MonoBehaviour:
   _eveningSkybox: {fileID: 2100000, guid: a6e735068255ec249a841b0e7e2f5867, type: 2}
   _nightSkybox: {fileID: 2100000, guid: 473b620c05a91964fa70dc608314f2b9, type: 2}
   _morning:
-    ambientColor: {r: 0.85, g: 0.62, b: 0.38, a: 1}
+    ambientColor: {r: 0.5, g: 0.42, b: 0.34, a: 1}
     lightColor: {r: 1, g: 0.78, b: 0.45, a: 1}
-    lightIntensity: 0.8
+    lightIntensity: 1.15
     fogColor: {r: 0.9, g: 0.75, b: 0.6, a: 1}
+    skyZenith: {r: 0.35, g: 0.58, b: 0.88, a: 1}
+    skyHorizon: {r: 0.72, g: 0.86, b: 0.96, a: 1}
+    skyGround: {r: 0.55, g: 0.7, b: 0.82, a: 1}
   _afternoon:
-    ambientColor: {r: 0.72, g: 0.8, b: 0.9, a: 1}
+    ambientColor: {r: 0.46, g: 0.54, b: 0.64, a: 1}
     lightColor: {r: 1, g: 0.98, b: 0.92, a: 1}
-    lightIntensity: 1.2
+    lightIntensity: 1.5
     fogColor: {r: 0.75, g: 0.85, b: 0.95, a: 1}
+    skyZenith: {r: 0.13, g: 0.38, b: 0.82, a: 1}
+    skyHorizon: {r: 0.45, g: 0.7, b: 0.94, a: 1}
+    skyGround: {r: 0.35, g: 0.55, b: 0.78, a: 1}
   _evening:
-    ambientColor: {r: 0.8, g: 0.38, b: 0.12, a: 1}
+    ambientColor: {r: 0.44, g: 0.26, b: 0.14, a: 1}
     lightColor: {r: 1, g: 0.5, b: 0.18, a: 1}
-    lightIntensity: 0.55
+    lightIntensity: 0.9
     fogColor: {r: 0.88, g: 0.48, b: 0.2, a: 1}
+    skyZenith: {r: 0.72, g: 0.34, b: 0.18, a: 1}
+    skyHorizon: {r: 1, g: 0.6, b: 0.26, a: 1}
+    skyGround: {r: 0.62, g: 0.32, b: 0.22, a: 1}
   _night:
-    ambientColor: {r: 0.04, g: 0.04, b: 0.12, a: 1}
+    ambientColor: {r: 0.05, g: 0.06, b: 0.16, a: 1}
     lightColor: {r: 0.28, g: 0.3, b: 0.55, a: 1}
-    lightIntensity: 0.08
+    lightIntensity: 0.18
     fogColor: {r: 0.03, g: 0.04, b: 0.1, a: 1}
+    skyZenith: {r: 0.1, g: 0.08, b: 0.2, a: 1}
+    skyHorizon: {r: 0.24, g: 0.2, b: 0.38, a: 1}
+    skyGround: {r: 0.15, g: 0.12, b: 0.24, a: 1}
+  _skyHorizonWidth: 0.3
+  _skyGroundWidth: 0.25
 --- !u!4 &1669257311
 Transform:
   m_ObjectHideFlags: 0
