@@ -4,6 +4,18 @@
 //
 //       ★流路そのもの（中心線の形・半幅）は RiverChannelLayout が持つ。
 //         ここは「その流路をどれだけ深く彫るか」だけを決める。
+//
+//       ★断面は「平らな水面 → なだらかな岸の斜面 → 平らな草地」の3段。
+//         色の境目は斜面の下端・上端にぴったり重なるので、
+//         平地に線を引いたようには見えない。
+//
+//       ★断面は中心線までの距離だけで決まり、形状で分岐しない。
+//         流路はどの形状でも辺に垂直に出入りするため、辺を共有する2枚のタイルは
+//         その辺の上で同じ距離を測る。だから直線と曲がりを繋いでも継ぎ目が揃う。
+//
+//       ★天面の法線は三角形の向きからではなく地形の式から直接求める（SurfaceNormal）。
+//         RecalculateNormalsに任せると、三角格子の向きが交互に変わるぶん陰影が
+//         ぎざぎざに見えるため。
 //         木や花を川へ生やさないための除外判定も同じ RiverChannelLayout を通るため、
 //         川幅を変えれば溝も除外範囲も一緒に動く。
 
@@ -17,7 +29,6 @@ namespace ElfVillage.Tiles
         // 流路パラメータ（Build と CenterlineHeight で共有し、ズレを防ぐ）
         // ★流路の半幅と中心線の形は RiverChannelLayout が唯一の情報源。
         //   ここで独自に持つと、木や花の川よけ判定と溝の形が食い違う。
-        private const float WallBandRatio  = 0.35f; // halfWidth比。壁の遷移帯（狭いほど壁が垂直に近い）
         private const float RampRatio      = 0.28f; // t空間での、辺境界からの立ち上がり割合
         private const float MaxDepthRatio  = 0.65f; // タイル厚み比。溝の最大深さ（0.5=厚みの半分）
 
@@ -38,8 +49,10 @@ namespace ElfVillage.Tiles
 
             float h          = height * 0.5f;
             float maxDepth   = height * MaxDepthRatio;
-            float halfWidth  = RiverChannelLayout.ChannelHalfWidth(outerRadius);
-            float wallBand   = halfWidth * WallBandRatio;
+            // 平らな水面の外端 → 岸の斜面 → 平らな草地。値は RiverChannelLayout が唯一の情報源。
+            float waterHalf  = RiverChannelLayout.ChannelHalfWidth(outerRadius);
+            float bankOuter  = RiverChannelLayout.BankOuterRadius(outerRadius);
+            float slopeBand  = bankOuter - waterHalf;
 
             int S = Mathf.Max(2, subdivisions);
 
@@ -47,8 +60,19 @@ namespace ElfVillage.Tiles
             var uvs         = new List<Vector2>();
             var depths      = new List<float>(); // 頂点ごとの実際の深さ（三角形分割の境界計算に使う）
             var isChannel   = new List<bool>(); // 陰影に頼らず色分けするための、頂点ごとの「水路内か」フラグ
+            // 色の境界に使う2つの量。どちらも「中心線までの距離」から作った符号付きの余裕で、
+            // 0より大きければその内側。
+            // ★深さで切らない理由: 深さは斜面の上端で smoothstep の平らな部分に入るため、
+            //   2頂点の深さを直線で結んで境界を求めると、交点が1マス近くばらつく。
+            //   実測で 0.049（水面の半幅の約1割）揺れており、これが水際のギザギザの正体だった。
+            //   距離は位置に対して直線なので、同じやり方でも交点が正確に決まる。
+            var waterField  = new List<float>(); // 平らな水面の中か
+            var bankField   = new List<float>(); // 岸の斜面の中か
             var landTris    = new List<int>();
             var channelTris = new List<int>();
+            var bankTris    = new List<int>();
+            // 天面だけを2段階に切りたいので、いったんここへ受ける（底面・側面は切らない）
+            var topLandTris = new List<int>();
 
             const float channelThreshold = 0.001f;
 
@@ -57,28 +81,36 @@ namespace ElfVillage.Tiles
                 Vector3 xz = new Vector3(flat.x, 0f, flat.z);
                 // 六角形の外周は、開いている端の水路幅の中でなければ必ず深さ0にして、
                 // 隣接タイルと段差なく繋がるようにする（開いている場合は溝底のまま繋げる）。
+                // 開いている端は斜面の外端まで、隣タイルと同じ高さのまま繋げる
                 bool forceLand = isRimBoundary
-                    && !(openA && (xz - new Vector3(edgeA.x, 0f, edgeA.z)).magnitude <= halfWidth)
-                    && !(openB && (xz - new Vector3(edgeB.x, 0f, edgeB.z)).magnitude <= halfWidth);
+                    && !(openA && (xz - new Vector3(edgeA.x, 0f, edgeA.z)).magnitude <= bankOuter)
+                    && !(openB && (xz - new Vector3(edgeB.x, 0f, edgeB.z)).magnitude <= bankOuter);
 
+                float dist  = RiverChannelLayout.DistanceToCenterline(xz, edgeA, ctrl, edgeB);
                 float depth = forceLand
                     ? 0f
-                    : ComputeDepth(xz, edgeA, ctrl, edgeB, halfWidth, wallBand, maxDepth, openA, openB);
+                    : ComputeDepth(xz, edgeA, ctrl, edgeB, waterHalf, slopeBand, maxDepth, openA, openB);
                 verts.Add(new Vector3(flat.x, h - depth, flat.z));
                 uvs.Add(new Vector2(0.5f + 0.5f * flat.x / outerRadius, 0.5f + 0.5f * flat.z / outerRadius));
                 depths.Add(depth);
                 isChannel.Add(depth > channelThreshold);
+                // 六角形の外周で陸地へ戻すときは色も陸地側へ寄せる（隣接タイルと段差なく繋ぐため）。
+                // わずかに負の値にするのは、境界の頂点が辺のすぐ内側へ落ちるようにするため。
+                waterField.Add(forceLand ? -0.001f : waterHalf - dist);
+                bankField.Add(forceLand ? -0.001f : bankOuter - dist);
                 return verts.Count - 1;
             }
 
-            // 境界(depth==channelThreshold)上に新しい頂点を作り、そのインデックスを返す。
-            int CrossVertex(int ia, int ib)
+            // 横方向の距離を量にして境界頂点を作る。水際にも岸際にも同じやり方を使う。
+            int LateralCrossVertex(List<float> field, int ia, int ib)
             {
-                float da = depths[ia], db = depths[ib];
-                float t  = (channelThreshold - da) / (db - da);
+                float fa = field[ia], fb = field[ib];
+                float t  = fa / (fa - fb);
                 verts.Add(Vector3.Lerp(verts[ia], verts[ib], t));
                 uvs.Add(Vector2.Lerp(uvs[ia], uvs[ib], t));
-                depths.Add(channelThreshold);
+                depths.Add(Mathf.Lerp(depths[ia], depths[ib], t));
+                bankField.Add(Mathf.Lerp(bankField[ia], bankField[ib], t));
+                waterField.Add(Mathf.Lerp(waterField[ia], waterField[ib], t));
                 return verts.Count - 1;
             }
 
@@ -87,30 +119,37 @@ namespace ElfVillage.Tiles
             // 通る新しい頂点を挿入して正確に分割することで、輪郭が三角格子の形に
             // 引きずられず（ガタガタにならず）、かつ1枚のメッシュのまま境界が繋がるようにする
             // （オーバーレイを重ねる方式だと地形本体との間でチラつき・貫通が起きるため）。
-            void EmitTri(int i0, int i1, int i2)
+            // 三角形を、量fieldが閾値を超えるかどうかで inside/outside へ振り分ける。
+            // またぐ場合は境界の位置に頂点を挿入して正確に分割する。
+            // ★水際（深さ）と岸際（横方向の距離）で同じ手続きを使い回すために切り出してある。
+            //   別々に書くと、片方だけ境界の作り方が変わってズレる。
+            void SplitTri(int i0, int i1, int i2,
+                          List<float> field, float threshold,
+                          List<int> insideTris, List<int> outsideTris,
+                          System.Func<int, int, int> cross)
             {
-                bool in0 = depths[i0] > channelThreshold;
-                bool in1 = depths[i1] > channelThreshold;
-                bool in2 = depths[i2] > channelThreshold;
+                bool in0 = field[i0] > threshold;
+                bool in1 = field[i1] > threshold;
+                bool in2 = field[i2] > threshold;
                 int  cnt = (in0 ? 1 : 0) + (in1 ? 1 : 0) + (in2 ? 1 : 0);
 
-                if (cnt == 0) { landTris.Add(i0);    landTris.Add(i1);    landTris.Add(i2);    return; }
-                if (cnt == 3) { channelTris.Add(i0); channelTris.Add(i1); channelTris.Add(i2); return; }
+                if (cnt == 0) { outsideTris.Add(i0); outsideTris.Add(i1); outsideTris.Add(i2); return; }
+                if (cnt == 3) { insideTris.Add(i0);  insideTris.Add(i1);  insideTris.Add(i2);  return; }
 
-                // p0が少数派（cnt==1なら水路側の1点、cnt==2なら陸地側の1点）になるよう回転させる
+                // p0が少数派（cnt==1なら内側の1点、cnt==2なら外側の1点）になるよう回転させる
                 int p0, p1, p2;
-                bool loneIsChannel = cnt == 1;
+                bool loneIsInside = cnt == 1;
                 bool lone0 = cnt == 1 ? in0 : !in0;
                 bool lone1 = cnt == 1 ? in1 : !in1;
                 if (lone0)      { p0 = i0; p1 = i1; p2 = i2; }
                 else if (lone1) { p0 = i1; p1 = i2; p2 = i0; }
                 else            { p0 = i2; p1 = i0; p2 = i1; }
 
-                int m01 = CrossVertex(p0, p1);
-                int m20 = CrossVertex(p2, p0);
+                int m01 = cross(p0, p1);
+                int m20 = cross(p2, p0);
 
-                var loneList  = loneIsChannel ? channelTris : landTris;
-                var otherList = loneIsChannel ? landTris    : channelTris;
+                var loneList  = loneIsInside ? insideTris  : outsideTris;
+                var otherList = loneIsInside ? outsideTris : insideTris;
 
                 loneList.Add(p0); loneList.Add(m01); loneList.Add(m20);
 
@@ -179,6 +218,11 @@ namespace ElfVillage.Tiles
                 }
             }
 
+            // 天面の三角形を、まず水面とそれ以外へ振り分ける。
+            void SplitTop(int i0, int i1, int i2)
+                => SplitTri(i0, i1, i2, waterField, 0f, channelTris, topLandTris,
+                            (a, b) => LateralCrossVertex(waterField, a, b));
+
             // 地形の高さ計算グリッドの各三角形を、頂点の深さに応じて陸地/水路サブメッシュへ振り分ける。
             // 境界をまたぐ三角形は EmitTri が正確な位置で分割するため、1枚のメッシュのまま
             // 輪郭がガタガタにならず、かつオーバーレイ方式のようなチラつき・貫通も起きない。
@@ -191,16 +235,28 @@ namespace ElfVillage.Tiles
                         int i00 = localIdx[i][p,     q];
                         int i10 = localIdx[i][p + 1, q];
                         int i01 = localIdx[i][p,     q + 1];
-                        EmitTri(i00, i10, i01);
+                        SplitTop(i00, i10, i01);
 
                         if (p + q + 2 <= S)
                         {
                             int i11 = localIdx[i][p + 1, q + 1];
-                            EmitTri(i10, i11, i01);
+                            SplitTop(i10, i11, i01);
                         }
                     }
                 }
             }
+
+            // ── 天面の陸地側を、水際の少し外まで「岸」として切り分ける ──────
+            // ★水と陸の境界（上のパス）は一切動かさない。動かすと溝の輪郭と
+            //   プロップの川よけ判定がずれる。ここで切るのは陸地側の三角形だけ。
+            for (int i = 0; i < topLandTris.Count; i += 3)
+                SplitTri(topLandTris[i], topLandTris[i + 1], topLandTris[i + 2],
+                         bankField, 0f, bankTris, landTris,
+                         (a, b) => LateralCrossVertex(bankField, a, b));
+
+            // ★ここまでの頂点がすべて天面。法線を式から求め直すのはこの範囲だけ
+            //   （底面・側面はこの後に足されるので、RecalculateNormals の結果をそのまま使う）
+            int topVertexCount = verts.Count;
 
             // ── 底面: 変更なし（常にフラット） ──────────────────────────
             int bottomCenterIdx = verts.Count;
@@ -238,7 +294,7 @@ namespace ElfVillage.Tiles
 
                 if (edgeHasOpenChannel)
                 {
-                    // 川岸を表す緑キューブの端（中心線からhalfWidthの距離）を分割の基準にする。
+                    // 岸の斜面の外端（中心線からbankOuterの距離）を分割の基準にする。
                     // その外側（陸地）は独立頂点のフラット四角形のまま。
                     // 内側（水路の幅の中）だけ、天面と同じ高さ計算で滑らかに繋げる
                     // （天面はカーブしたままなのでフラットにすると隙間ができるため）。
@@ -251,8 +307,8 @@ namespace ElfVillage.Tiles
                     Vector3 refCenter = distToA < distToB ? edgeA : edgeB;
 
                     Vector3 tangent = new Vector3(rimNext.x - rimThis.x, 0f, rimNext.z - rimThis.z).normalized;
-                    Vector3 s1 = refCenter - tangent * halfWidth; // rimThis側（キューブの端）
-                    Vector3 s2 = refCenter + tangent * halfWidth; // rimNext側（キューブの端）
+                    Vector3 s1 = refCenter - tangent * bankOuter; // rimThis側（斜面の外端）
+                    Vector3 s2 = refCenter + tangent * bankOuter; // rimNext側（斜面の外端）
 
                     AddFlatWallQuad(verts, uvs, landTris, rimThis, s1, h, -h);
                     AddFlatWallQuad(verts, uvs, landTris, s2, rimNext, h, -h);
@@ -263,9 +319,9 @@ namespace ElfVillage.Tiles
                     {
                         Vector3 cur = Vector3.Lerp(s1, s2, (float)m / midDivisions);
                         float depthPrev = ComputeDepth(new Vector3(prev.x, 0f, prev.z), edgeA, ctrl, edgeB,
-                                                        halfWidth, wallBand, maxDepth, openA, openB);
+                                                        waterHalf, slopeBand, maxDepth, openA, openB);
                         float depthCur  = ComputeDepth(new Vector3(cur.x, 0f, cur.z), edgeA, ctrl, edgeB,
-                                                        halfWidth, wallBand, maxDepth, openA, openB);
+                                                        waterHalf, slopeBand, maxDepth, openA, openB);
                         AddWallQuad(verts, uvs, landTris,
                                     new Vector3(prev.x, h - depthPrev, prev.z),
                                     new Vector3(cur.x,  h - depthCur,  cur.z), -h);
@@ -295,10 +351,24 @@ namespace ElfVillage.Tiles
 
             mesh.SetVertices(verts);
             mesh.SetUVs(0, uvs);
-            mesh.subMeshCount = 2; // サブメッシュ0=陸地(既存タイル色) / 1=水路(専用マテリアルで暗い水色を付け、陰影に頼らず視認できるようにする)
+            // サブメッシュ0=草地(既存タイル色) / 1=水面(専用マテリアルで暗い水色) / 2=岸の斜面
+            mesh.subMeshCount = 3;
             mesh.SetTriangles(landTris, 0);
             mesh.SetTriangles(channelTris, 1);
+            mesh.SetTriangles(bankTris, 2);
             mesh.RecalculateNormals();
+
+            // 天面だけ、法線を地形の式から求め直す。
+            // ★RecalculateNormals は隣り合う三角形の向きを平均するので、
+            //   三角格子の向きが交互に変わるぶん法線が振れ、斜面がぎざぎざに光る。
+            //   面の傾きは式から正確に出せるので、そちらを使う。
+            var normals = mesh.normals;
+            for (int i = 0; i < topVertexCount; i++)
+            {
+                normals[i] = SurfaceNormal(new Vector3(verts[i].x, 0f, verts[i].z), edgeA, ctrl, edgeB,
+                                            waterHalf, slopeBand, maxDepth, openA, openB);
+            }
+            mesh.normals = normals;
             mesh.RecalculateBounds();
             return mesh;
         }
@@ -339,10 +409,7 @@ namespace ElfVillage.Tiles
         {
             float h        = height * 0.5f;
             float maxDepth = height * MaxDepthRatio;
-            float wLongA   = openA ? 1f : Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t / RampRatio));
-            float wLongB   = openB ? 1f : Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((1f - t) / RampRatio));
-            float wLong    = Mathf.Min(wLongA, wLongB);
-            return h - maxDepth * wLong;
+            return h - maxDepth * LongitudinalWeight(t, openA, openB);
         }
 
         private static Vector3 RimPoint(int i, float outerRadius, float y)
@@ -355,7 +422,7 @@ namespace ElfVillage.Tiles
         // その位置の縦断方向係数(辺境界で0、中央で1。ただしopenA/openBの端は0にならず1のまま)・
         // 横断方向係数(壁で0、中央で1)の積で深さを決める。
         private static float ComputeDepth(Vector3 p, Vector3 edgeA, Vector3 ctrl, Vector3 edgeB,
-                                           float halfWidth, float wallBand, float maxDepth,
+                                           float waterHalf, float slopeBand, float maxDepth,
                                            bool openA, bool openB)
         {
             // 中心線までの距離と、その位置の曲線パラメータtは RiverChannelLayout が算出する。
@@ -363,18 +430,83 @@ namespace ElfVillage.Tiles
             //   「溝の中」と「プロップを置いてはいけない場所」が定義上ずれない。
             float dist  = RiverChannelLayout.DistanceToCenterline(p, edgeA, ctrl, edgeB, out float tBest);
 
-            float innerHalf = halfWidth - wallBand;
+            // 平らな水面 → なだらかな斜面 → 平らな草地
             float wLat;
-            if (dist <= innerHalf)      wLat = 1f;
-            else if (dist <= halfWidth) wLat = Mathf.SmoothStep(1f, 0f, (dist - innerHalf) / wallBand);
-            else                        wLat = 0f;
+            if (dist <= waterHalf)                 wLat = 1f;
+            else if (dist <= waterHalf + slopeBand) wLat = Mathf.SmoothStep(1f, 0f, (dist - waterHalf) / slopeBand);
+            else                                    wLat = 0f;
 
-            // edgeA側(t=0)・edgeB側(t=1)それぞれの立ち上がり係数。開いている端は1のまま（陸地の高さに戻らない）。
-            float wLongA = openA ? 1f : Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(tBest / RampRatio));
-            float wLongB = openB ? 1f : Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((1f - tBest) / RampRatio));
-            float wLong  = Mathf.Min(wLongA, wLongB);
+            return maxDepth * wLat * LongitudinalWeight(tBest, openA, openB);
+        }
 
-            return maxDepth * wLat * wLong;
+        /// <summary>
+        /// 辺境界(t=0/1)で0、流路の中ほどで1になる縦断方向の係数。開いている端は1のまま
+        /// （陸地の高さへ戻さず、隣のタイルへ溝底のまま繋げる）。
+        /// ★深さ・中心線の高さ・岸の帯が、すべてこの1つの式を通るようにしてある。
+        ///   別々に書くと、片方だけ端の扱いが変わって継ぎ目が割れる。
+        /// </summary>
+        private static float LongitudinalWeight(float t, bool openA, bool openB)
+        {
+            float wLongA = openA ? 1f : Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t / RampRatio));
+            float wLongB = openB ? 1f : Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((1f - t) / RampRatio));
+            return Mathf.Min(wLongA, wLongB);
+        }
+
+        /// <summary>
+        /// 天面の法線を、三角形の向きからではなく地形の式から直接求める。
+        ///
+        /// ★深さは「横方向の落ち込み × 縦断方向の立ち上がり」の積なので、
+        ///   その勾配も2項の和で書ける。積の微分をそのまま素直に書き下してある。
+        ///   斜面の両端では SmoothStep の傾きが0になるため、
+        ///   水面との境も草地との境も折れ目が出ずに滑らかに繋がる。
+        /// </summary>
+        private static Vector3 SurfaceNormal(Vector3 p, Vector3 edgeA, Vector3 ctrl, Vector3 edgeB,
+                                              float waterHalf, float slopeBand, float maxDepth,
+                                              bool openA, bool openB)
+        {
+            float dist = RiverChannelLayout.DistanceToCenterline(p, edgeA, ctrl, edgeB, out float t);
+
+            // 横方向の落ち込みと、その距離に対する傾き
+            float u = (dist - waterHalf) / slopeBand;
+            float wLat, dLat;
+            if (u <= 0f)      { wLat = 1f; dLat = 0f; }
+            else if (u >= 1f) { wLat = 0f; dLat = 0f; }
+            else              { wLat = 1f - u * u * (3f - 2f * u); dLat = -6f * u * (1f - u) / slopeBand; }
+
+            // 縦断方向の立ち上がりと、そのtに対する傾き
+            float wLong = LongitudinalWeight(t, openA, openB);
+            float dLong = LongitudinalSlope(t, openA, openB);
+
+            // 距離の勾配は「いちばん近い中心線上の点から外向きの単位ベクトル」
+            Vector3 nearest = RiverChannelLayout.QuadBezier(edgeA, ctrl, edgeB, t);
+            Vector3 outward = new Vector3(p.x - nearest.x, 0f, p.z - nearest.z);
+            float   outLen  = outward.magnitude;
+            Vector3 gradDist = outLen > 0.0001f ? outward / outLen : Vector3.zero;
+
+            // tの勾配は接線方向。2次ベジェの微分をそのまま使う
+            Vector3 tangent = 2f * (1f - t) * (ctrl - edgeA) + 2f * t * (edgeB - ctrl);
+            tangent.y = 0f;
+            float   spd2    = tangent.sqrMagnitude;
+            Vector3 gradT   = spd2 > 0.0001f ? tangent / spd2 : Vector3.zero;
+
+            Vector3 gradDepth = maxDepth * (dLat * wLong * gradDist + wLat * dLong * gradT);
+
+            // 面は y = h - depth なので、法線は (∂depth/∂x, 1, ∂depth/∂z)
+            return new Vector3(gradDepth.x, 1f, gradDepth.z).normalized;
+        }
+
+        /// <summary>縦断方向の立ち上がり係数の、tに対する傾き。</summary>
+        private static float LongitudinalSlope(float t, bool openA, bool openB)
+        {
+            float tA = Mathf.Clamp01(t / RampRatio);
+            float tB = Mathf.Clamp01((1f - t) / RampRatio);
+            float wA = openA ? 1f : tA * tA * (3f - 2f * tA);
+            float wB = openB ? 1f : tB * tB * (3f - 2f * tB);
+
+            // 小さいほうが深さを決めているので、そちらの傾きを返す
+            if (wA <= wB)
+                return (openA || tA <= 0f || tA >= 1f) ? 0f :  6f * tA * (1f - tA) / RampRatio;
+            return     (openB || tB <= 0f || tB >= 1f) ? 0f : -6f * tB * (1f - tB) / RampRatio;
         }
     }
 }

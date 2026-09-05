@@ -66,8 +66,9 @@ namespace ElfVillage.Tests
             tile.Place(riverType, 0);
 
             var mr = tile.GetComponent<MeshRenderer>();
-            Assert.AreEqual(2, mr.materials.Length, "川タイルはsubMesh2枚（陸地+水路）になるはず");
+            Assert.AreEqual(3, mr.materials.Length, "川タイルはsubMesh3枚（草地+水面+岸の斜面）になるはず");
             Assert.IsNull(mr.materials[1].mainTexture, "初回配置時点で水路スロットに地面テクスチャが付いてはいけない");
+            Assert.IsNull(mr.materials[2].mainTexture, "岸スロットにも地面テクスチャが付いてはいけない");
         }
 
         [Test]

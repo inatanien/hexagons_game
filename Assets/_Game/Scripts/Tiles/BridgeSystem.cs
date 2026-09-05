@@ -36,11 +36,13 @@ namespace ElfVillage.Tiles
 
         private void SpawnBridge(HexTile tile)
         {
-            if (!tile.TryGetRiverBridgeAnchor(out Vector3 localCenter, out Vector3 localTangent, out float riverWidth))
+            if (!tile.TryGetRiverBridgeAnchor(out Vector3 localCenter, out Vector3 localTangent, out float spanWidth))
                 return;
 
             Vector3 crossDir = new Vector3(-localTangent.z, 0f, localTangent.x);
-            float   halfSpan = riverWidth * 0.5f + _bankOverhang;
+            // spanWidth は岸の斜面の外端どうしの幅。そこへさらに少し掛けて、
+            // 橋の端が平らな草地の上へ乗るようにする
+            float   halfSpan = spanWidth * 0.5f + _bankOverhang;
             float   baseY    = tile.TileHeight * 0.5f;
 
             var root = new GameObject("RiverBridge");

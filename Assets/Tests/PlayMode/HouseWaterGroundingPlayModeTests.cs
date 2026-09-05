@@ -174,22 +174,21 @@ namespace ElfVillage.Tests
         // ══ Water（川岸） ════════════════════════════════════════════════
 
         [UnityTest]
-        public IEnumerator RiverBank_GhostMatchesPlaced()
+        public IEnumerator RiverGhost_ShowsTheChannelAtTheGroundingHeight()
         {
-            // 実配置0.16 / ゴースト0.31 で0.15ずれていた不具合の回帰テスト。
-            var type   = MakeTile(TilePropType.Water);
-            var placed = BuildPlaced(type);
-            var ghost  = BuildPreview(type);
+            // ★ゴーストが川の位置を示せているか。
+            //   岸が地形の斜面になり、目印だった緑のキューブが無くなったので、
+            //   代わりに水面の幅の帯を出している。これが消えると、
+            //   置く前にどこへ川が通るのか分からなくなる。
+            // 実配置0.16 / ゴースト0.31 で0.15ずれていた不具合の回帰テストでもある。
+            var type  = MakeTile(TilePropType.Water);
+            var ghost = BuildPreview(type);
             yield return null;
 
-            float placedY = LowestCubeLocalY(placed.transform);
-            float ghostY  = LowestCubeLocalY(ghost.transform);
+            float ghostY = LowestCubeLocalY(ghost.transform);
 
-            Assert.AreNotEqual(float.MaxValue, placedY, "実配置の川岸が無い");
-            Assert.AreNotEqual(float.MaxValue, ghostY,  "ゴーストの川岸が無い");
-            Assert.AreEqual(placedY, ghostY, 0.0001f,
-                $"ゴースト({ghostY:F3})と実配置({placedY:F3})で川岸の高さが違う");
-            Assert.AreEqual(GroundY(TileHeight), ghostY, 0.0001f, "川岸が接地ルールから外れている");
+            Assert.AreNotEqual(float.MaxValue, ghostY, "ゴーストに川の帯が無い");
+            Assert.AreEqual(GroundY(TileHeight), ghostY, 0.0001f, "川の帯が接地ルールから外れている");
         }
 
         // ══ Water（水面は溝の中に留まる） ════════════════════════════════
@@ -238,20 +237,26 @@ namespace ElfVillage.Tests
         [UnityTest]
         public IEnumerator RiverBank_SitsAboveTheWaterSurface()
         {
+            // 岸は地形の斜面（サブメッシュ2）。水面（サブメッシュ1）より必ず高い位置にある。
+            // ★役割が入れ替わると、水が岸へ乗り上げた見た目になる。
             var tile = BuildPlaced(MakeTile(TilePropType.Water));
             yield return null;
 
-            float bankY = LowestCubeLocalY(tile.transform);
-            Assert.AreNotEqual(float.MaxValue, bankY, "川岸が無い");
+            var mesh = tile.GetComponent<MeshFilter>().sharedMesh;
+            Assert.AreEqual(3, mesh.subMeshCount, "岸のサブメッシュが無い");
 
-            float deepest = float.MaxValue;
-            foreach (var ps in tile.GetComponentsInChildren<ParticleSystem>(true))
-                if (ps.gameObject.name == "WaterPS")
-                    deepest = Mathf.Min(deepest, ps.transform.localPosition.y);
+            var verts = mesh.vertices;
 
-            Assert.AreNotEqual(float.MaxValue, deepest, "水パーティクルが無い");
-            Assert.Greater(bankY, deepest,
-                $"川岸({bankY:F3})が水面({deepest:F3})より低い。役割が入れ替わっている");
+            float lowestBank = float.MaxValue;
+            foreach (var i in mesh.GetTriangles(2)) lowestBank = Mathf.Min(lowestBank, verts[i].y);
+
+            float lowestWater = float.MaxValue;
+            foreach (var i in mesh.GetTriangles(1)) lowestWater = Mathf.Min(lowestWater, verts[i].y);
+
+            Assert.AreNotEqual(float.MaxValue, lowestBank,  "岸の三角形が無い");
+            Assert.AreNotEqual(float.MaxValue, lowestWater, "水面の三角形が無い");
+            Assert.Greater(lowestBank, lowestWater,
+                $"岸のいちばん低いところ({lowestBank:F3})が水面の底({lowestWater:F3})より低い。役割が入れ替わっている");
         }
     }
 }

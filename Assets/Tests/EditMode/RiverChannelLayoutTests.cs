@@ -3,8 +3,9 @@
 //       ★このテストの主目的は2つ。
 //         1. 「溝の形」と「木や花を置いてはいけない範囲」が同じ情報源から出ること。
 //            別々に実装されると、川幅を1つ変えただけで木が水に立つ／岸が不自然に空く。
-//         2. RiverChannelLayout への切り出しで、生成される溝メッシュが1頂点も変わっていないこと。
-//            基準値はリファクタ前の実装から実測して埋め込んである。
+//         2. 断面が形状に依らず「中心線までの距離」だけで決まること。
+//            これが直線と曲がりを繋いだときに継ぎ目が揃うことの根拠になっている。
+//         3. 生成される溝メッシュが不用意に変わっていないこと（基準値を実測して埋め込んである）。
 
 using NUnit.Framework;
 using UnityEngine;
@@ -46,20 +47,94 @@ namespace ElfVillage.Tests
         // ══ 流路の半幅 ═══════════════════════════════════════════════════
 
         [Test]
-        public void ChannelHalfWidth_MatchesTheRiverBankPosition()
+        public void ChannelHalfWidth_IsWhereTheSlopeBegins()
         {
-            // 川岸ラインは HexTile.CreateWaterFlow で riverWidth(=outerRadius*0.5) の半分に置かれる。
-            // 溝の壁と岸が同じ位置でなければ、岸のキューブが水に浮くか土に埋まる。
-            float bankOffset = (OuterRadius * 0.5f) * 0.5f;
-            Assert.AreEqual(bankOffset, RiverChannelLayout.ChannelHalfWidth(OuterRadius), 0.0001f);
-            Assert.AreEqual(0.50f, RiverChannelLayout.ChannelHalfWidth(2.0f), 0.0001f);
+            // 半幅は「平らな水面の外端」。ここから岸の斜面が始まる。
+            // かつては川岸を表す緑のキューブの位置だったが、キューブは撤去され、
+            // 岸は地形の斜面そのものになった。
+            Assert.AreEqual(0.42f, RiverChannelLayout.ChannelHalfWidth(2.0f), 0.0001f);
+        }
+
+        [Test]
+        public void BankOuterRadius_IsOutsideTheWaterEdge()
+        {
+            // 斜面は必ず水面より外にある。逆転すると断面が裏返る。
+            Assert.Greater(RiverChannelLayout.BankOuterRadius(OuterRadius),
+                           RiverChannelLayout.ChannelHalfWidth(OuterRadius));
+            Assert.AreEqual(0.76f, RiverChannelLayout.BankOuterRadius(2.0f), 0.0001f);
         }
 
         [Test]
         public void ChannelHalfWidth_ScalesWithOuterRadius()
         {
-            Assert.AreEqual(0.25f, RiverChannelLayout.ChannelHalfWidth(1.0f), 0.0001f);
-            Assert.AreEqual(1.00f, RiverChannelLayout.ChannelHalfWidth(4.0f), 0.0001f);
+            Assert.AreEqual(0.21f, RiverChannelLayout.ChannelHalfWidth(1.0f), 0.0001f);
+            Assert.AreEqual(0.84f, RiverChannelLayout.ChannelHalfWidth(4.0f), 0.0001f);
+        }
+
+        [Test]
+        public void BankOuterRadius_ScalesWithOuterRadius()
+        {
+            Assert.AreEqual(0.38f, RiverChannelLayout.BankOuterRadius(1.0f), 0.0001f);
+            Assert.AreEqual(1.52f, RiverChannelLayout.BankOuterRadius(4.0f), 0.0001f);
+        }
+
+        [Test]
+        public void SharedEdge_MeasuresTheSameDistanceFromBothTiles()
+        {
+            // ★これが「直線と曲がりを繋いでも継ぎ目が揃う」ことの根拠。
+            //   断面（高さも色も）は中心線までの距離だけの関数なので、
+            //   辺の上で両側のタイルが同じ距離を測るなら、継ぎ目は自動的に一致する。
+            //
+            //   効いているのは、流路の制御点がどの形状でもタイル中心にあることで、
+            //   端点での接線が必ず辺の法線方向になる（＝辺に垂直に出入りする）こと。
+            //   形状ごとに制御点をずらすと、この性質が壊れて継ぎ目に段差が出る。
+            const int share = 0;                 // 手前のタイルが隣と接する辺
+            const int facing = (share + 3) % 6;  // 隣のタイルから見た同じ辺
+
+            // 隣のタイルの中心は、辺の中点の2倍だけ離れている
+            Vector3 offset = 2f * RiverChannelLayout.EdgeCenter(share, OuterRadius);
+
+            // 共有する辺の両端（六角形の頂点）。辺dirは頂点k..k+1に挟まれる
+            int   k  = (6 - share) % 6;
+            Vector3 c0 = RimCorner(k), c1 = RimCorner(k + 1);
+
+            // share を含む流路と、facing を含む流路のすべての組み合わせ
+            var near = new[] { new[] { share, (share + 3) % 6 }, new[] { share, (share + 5) % 6 }, new[] { share, (share + 4) % 6 } };
+            var far  = new[] { new[] { facing, (facing + 3) % 6 }, new[] { facing, (facing + 5) % 6 }, new[] { facing, (facing + 4) % 6 } };
+
+            for (int i = 0; i < near.Length; i++)
+            {
+                for (int j = 0; j < far.Length; j++)
+                {
+                    GetChannelFor(near[i], out Vector3 na, out Vector3 nc, out Vector3 nb);
+                    GetChannelFor(far[j],  out Vector3 fa, out Vector3 fc, out Vector3 fb);
+
+                    for (int t = 1; t < 20; t++)
+                    {
+                        Vector3 onEdge   = Vector3.Lerp(c0, c1, t / 20f);
+                        float   dNear    = RiverChannelLayout.DistanceToCenterline(onEdge, na, nc, nb);
+                        float   dFar     = RiverChannelLayout.DistanceToCenterline(onEdge - offset, fa, fc, fb);
+
+                        Assert.AreEqual(dNear, dFar, 0.002f,
+                            $"{s_ShapeNames[i]}と{s_ShapeNames[j]}を繋いだ辺の上で、測る距離が食い違う");
+                    }
+                }
+            }
+        }
+
+        /// <summary>六角形の頂点（フラットトップ、60度刻み）。</summary>
+        private static Vector3 RimCorner(int i)
+        {
+            float angle = Mathf.Deg2Rad * (60f * (((i % 6) + 6) % 6));
+            return new Vector3(OuterRadius * Mathf.Cos(angle), 0f, OuterRadius * Mathf.Sin(angle));
+        }
+
+        private static void GetChannelFor(int[] edges, out Vector3 a, out Vector3 ctrl, out Vector3 b)
+        {
+            a = RiverChannelLayout.EdgeCenter(edges[0], OuterRadius);
+            b = RiverChannelLayout.EdgeCenter(edges[1], OuterRadius);
+            bool isStraight = ((a + b) * 0.5f).sqrMagnitude < 0.01f;
+            ctrl = isStraight ? (a + b) * 0.5f : Vector3.zero;
         }
 
         // ══ 中心線までの距離 ═════════════════════════════════════════════
@@ -179,12 +254,12 @@ namespace ElfVillage.Tests
         public void PointsFarFromTheChannel_AreLeftAsLand()
         {
             // 逆向きの固定。半幅より外は彫られていない。
-            // ★許容 0.002 の理由
-            //   陸地と水路の境界をまたぐ三角形は、深さ 0.001（channelThreshold）の等高線上へ
-            //   新しい頂点を挿入して分割される。その頂点は2点間の直線補間で作られるため、
-            //   XZ上の真の距離が半幅をわずかに超える位置に落ちることがあり、
-            //   そのぶん 0.001 だけ下がって見える。地形として彫られているわけではない。
-            float halfWidth = RiverChannelLayout.ChannelHalfWidth(OuterRadius);
+            // ★許容 0.005 の理由
+            //   色の境界をまたぐ三角形は、境界の等高線上へ新しい頂点を挿入して分割される。
+            //   その頂点の高さは両端の直線補間なので、斜面が曲がっているぶんだけ
+            //   真の地形よりわずかに下へ落ちる（弦と弧の差）。実測で最大0.0024。
+            //   タイルの厚み0.30に対して1%未満で、地形として彫られているわけではない。
+            float bankOuter = RiverChannelLayout.BankOuterRadius(OuterRadius);
             float landY     = HexMeshBuilder.TopY(TileHeight);
 
             for (int s = 0; s < s_ShapeEdges.Length; s++)
@@ -197,10 +272,10 @@ namespace ElfVillage.Tests
                     {
                         if (v.y < -landY + 0.0001f) continue;
                         float d = RiverChannelLayout.DistanceToCenterline(new Vector3(v.x, 0f, v.z), a, ctrl, b);
-                        if (d <= halfWidth + 0.0001f) continue;
+                        if (d <= bankOuter + 0.0001f) continue;
 
-                        Assert.AreEqual(landY, v.y, 0.002f,
-                            $"{s_ShapeNames[s]}: 中心線から{d:F3}離れた陸地の頂点が彫られている");
+                        Assert.AreEqual(landY, v.y, 0.005f,
+                            $"{s_ShapeNames[s]}: 斜面の外端({bankOuter:F2})より{d:F3}外の頂点が彫られている");
                     }
                 }
                 finally { Object.DestroyImmediate(mesh); }
@@ -211,8 +286,14 @@ namespace ElfVillage.Tests
         public void DeepCarvingStaysWellInsideTheHalfWidth()
         {
             // 上のテストの許容 0.002 が「実は溝が外へはみ出している」を見逃さないための対の固定。
-            // はっきり彫られている（深さ 0.01 以上）頂点は、必ず半幅の内側にある。
-            float halfWidth = RiverChannelLayout.ChannelHalfWidth(OuterRadius);
+            // 平らな水面（＝最大深さまで彫られている）の範囲が、水面の外端に収まっていること。
+            // ★岸の斜面は水面の外にあるので、浅い彫りは外側にも存在してよい。
+            //   斜面は SmoothStep なので上端の傾きが0に近く、
+            //   「9割の深さ」までなら水面の外端より少し外にも現れる。
+            //   それを外れと数えないよう、ここでは最大深さそのものを基準にする。
+            float halfWidth  = RiverChannelLayout.ChannelHalfWidth(OuterRadius);
+            float maxDepth   = TileHeight * 0.65f;          // MaxDepthRatio
+            float deepEnough = maxDepth * 0.999f;
             float landY     = HexMeshBuilder.TopY(TileHeight);
 
             for (int s = 0; s < s_ShapeEdges.Length; s++)
@@ -225,12 +306,12 @@ namespace ElfVillage.Tests
                     foreach (var v in mesh.vertices)
                     {
                         if (v.y < -landY + 0.0001f) continue;
-                        if (landY - v.y < 0.01f) continue;
+                        if (landY - v.y < deepEnough) continue;
 
                         deep++;
                         float d = RiverChannelLayout.DistanceToCenterline(new Vector3(v.x, 0f, v.z), a, ctrl, b);
-                        Assert.LessOrEqual(d, halfWidth + 0.0001f,
-                            $"{s_ShapeNames[s]}: 中心線から{d:F3}（半幅{halfWidth:F3}の外）が深さ{landY - v.y:F3}で彫られている");
+                        Assert.LessOrEqual(d, halfWidth + 0.02f,
+                            $"{s_ShapeNames[s]}: 中心線から{d:F3}（水面の外端{halfWidth:F3}の外）が最大深さ{landY - v.y:F3}で彫られている");
                     }
                     Assert.Greater(deep, 0, $"{s_ShapeNames[s]}: はっきり彫られた頂点が1つも無い");
                 }
@@ -308,23 +389,27 @@ namespace ElfVillage.Tests
         // ══ リファクタ前後でメッシュが変わっていないこと ═════════════════
 
         /// <summary>
-        /// リファクタ前の実装から実測した基準値。
-        /// 形式: verts | subMesh | sub0.idx | sub1.idx | 頂点ハッシュ | index ハッシュ | bounds.center | bounds.size
+        /// 現行の断面から実測した基準値。
+        /// 形式: verts | subMesh | 各subMeshのindex数 | 頂点ハッシュ | index ハッシュ | bounds.center | bounds.size
+        ///
+        /// ★意図せず溝の形が変わることを防ぐための固定値。
+        ///   断面（水面の半幅・岸の斜面の外端・深さ）を意図して変えたときだけ取り直すこと。
+        ///   前回の取り直し: 岸の斜面の外端を 0.45 から 0.38 へ詰めたとき。
         /// </summary>
         private static readonly string[] s_MeshBaseline =
         {
-            "1664|2|5616|2754|-4682549513587372444|-428198588079402083|(0.000000, 0.000000, 0.000000)|(4.000000, 0.300000, 3.464102)",
-            "1674|2|5589|2757|6094137218931938528|-5986112451484035114|(0.000000, 0.000000, 0.000000)|(4.000000, 0.300000, 3.464102)",
-            "1674|2|5589|2757|8557997316802829294|-1260706960937814478|(0.000000, 0.000000, 0.000000)|(4.000000, 0.300000, 3.464102)",
-            "1684|2|5562|2760|-2419974614236443158|3022366079686496691|(0.000000, 0.000000, 0.000000)|(4.000000, 0.300000, 3.464102)",
-            "1568|2|6138|1944|8481196757890878867|-1030806019024853010|(0.000000, 0.000000, 0.000000)|(4.000000, 0.300000, 3.464102)",
-            "1574|2|6111|1935|154923692767863998|-2470000934409828694|(0.000000, 0.000000, 0.000000)|(4.000000, 0.300000, 3.464102)",
-            "1574|2|6111|1935|6965116132820475128|7816041300819135792|(0.000000, 0.000000, 0.000000)|(4.000000, 0.300000, 3.464102)",
-            "1580|2|6084|1926|3949479058134800611|-4402312765415624424|(0.000000, 0.000000, 0.000000)|(4.000000, 0.300000, 3.464102)",
-            "1632|2|5694|2580|6989935818119677274|-1924590626023117436|(0.000000, 0.000000, 0.000000)|(4.000000, 0.300000, 3.464102)",
-            "1638|2|5667|2571|-3439380624991298267|-1542844142608111662|(0.000000, 0.000000, 0.000000)|(4.000000, 0.300000, 3.464102)",
-            "1638|2|5667|2571|6835990537420874866|-7359301142909056916|(0.000000, 0.000000, 0.000000)|(4.000000, 0.300000, 3.464102)",
-            "1644|2|5640|2562|-3726873292326997827|-991266043532267902|(0.000000, 0.000000, 0.000000)|(4.000000, 0.300000, 3.464102)",
+            "2136|3|4338|2538|2910|-885954487146664702|-4072231593841069441|(0.000000, 0.000000, 0.000000)|(4.000000, 0.300000, 3.464102)",
+            "2070|3|4230|2529|2775|2775216574524027484|1292282515585070823|(0.000000, 0.000000, 0.000000)|(4.000000, 0.300000, 3.464102)",
+            "2070|3|4230|2529|2775|-1969794835800127294|4551115915116086337|(0.000000, 0.000000, 0.000000)|(4.000000, 0.300000, 3.464102)",
+            "2004|3|4122|2520|2640|-5032760682735142436|4561404705250368973|(0.000000, 0.000000, 0.000000)|(4.000000, 0.300000, 3.464102)",
+            "1928|3|5376|1752|2034|2497177884268122481|-2168526110032132022|(0.000000, 0.000000, 0.000000)|(4.000000, 0.300000, 3.464102)",
+            "1862|3|5268|1743|1899|8534396267633477936|-7517986597080232394|(0.000000, 0.000000, 0.000000)|(4.000000, 0.300000, 3.464102)",
+            "1862|3|5268|1743|1899|8842773696334554823|-2762657984779884012|(0.000000, 0.000000, 0.000000)|(4.000000, 0.300000, 3.464102)",
+            "1796|3|5160|1734|1764|-7762951460829594106|7787301949035532796|(0.000000, 0.000000, 0.000000)|(4.000000, 0.300000, 3.464102)",
+            "2056|3|4656|2256|2634|-162120364842611834|-617597861303242177|(0.000000, 0.000000, 0.000000)|(4.000000, 0.300000, 3.464102)",
+            "1990|3|4548|2247|2499|8658733172094802814|-4390216268877461833|(0.000000, 0.000000, 0.000000)|(4.000000, 0.300000, 3.464102)",
+            "1990|3|4548|2247|2499|3454423074234858847|6382578245501098675|(0.000000, 0.000000, 0.000000)|(4.000000, 0.300000, 3.464102)",
+            "1924|3|4440|2238|2364|2432570657874573527|-8754867976167103325|(0.000000, 0.000000, 0.000000)|(4.000000, 0.300000, 3.464102)",
         };
 
         /// <summary>頂点位置・index列・subMesh数・boundsを、順序込みで1本の文字列へ畳む。</summary>
@@ -360,10 +445,10 @@ namespace ElfVillage.Tests
         }
 
         [Test]
-        public void Build_MatchesThePreRefactorMesh_ForEveryShapeAndOpenCombination()
+        public void Build_MatchesTheRecordedMesh_ForEveryShapeAndOpenCombination()
         {
-            // ★RiverChannelLayout への切り出しは、溝の形を1頂点も変えてはいけない。
-            //   3形状 × 開放端4通り = 12通りすべてを固定する。
+            // ★溝の形を不用意に変えていないことの固定。
+            //   3形状 × 開放端4通り = 12通りすべてを見る。
             int idx = 0;
             for (int s = 0; s < s_ShapeEdges.Length; s++)
             {

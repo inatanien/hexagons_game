@@ -177,6 +177,11 @@ namespace ElfVillage.Tiles
         }
 
         /// <summary>川タイル（propType==Water）の場合、天面に流路の溝を彫り込んだメッシュへ差し替える。</summary>
+        /// <summary>岸の色。濡れた土。</summary>
+        // ★草地(緑)と水面(青)のあいだを受け止める役なので、彩度を上げない。
+        //   鮮やかにすると、緑の棒を茶色い棒へ置き換えただけになる。
+        private static readonly Color RiverBankColor = new Color(0.42f, 0.36f, 0.26f);
+
         private void ApplyRiverChannelMesh(TileType tileType)
         {
             if (tileType == null || tileType.propType != TilePropType.Water) return;
@@ -212,7 +217,12 @@ namespace ElfVillage.Tiles
                 channelMat.mainTexture = null;
                 Color c = tileType.tileColor;
                 channelMat.color = new Color(c.r * 0.5f, c.g * 0.55f, c.b * 0.75f, c.a);
-                meshRenderer.materials = new[] { meshRenderer.material, channelMat };
+
+                // 岸も水面と同じ理由でテクスチャを外す（草地のマテリアルを複製しているため）
+                var bankMat = new Material(meshRenderer.sharedMaterial) { name = "RiverBank_Runtime" };
+                bankMat.mainTexture = null;
+                bankMat.color       = RiverBankColor;
+                meshRenderer.materials = new[] { meshRenderer.material, channelMat, bankMat };
             }
         }
 
@@ -250,11 +260,11 @@ namespace ElfVillage.Tiles
         /// 川タイルの橋を架けるための基準点をタイルローカル座標で取得する。
         /// 流路曲線の中央（t=0.5）の位置・流れの接線方向・川幅を返す。川タイルでなければ false。
         /// </summary>
-        public bool TryGetRiverBridgeAnchor(out Vector3 localCenter, out Vector3 localTangent, out float riverWidth)
+        public bool TryGetRiverBridgeAnchor(out Vector3 localCenter, out Vector3 localTangent, out float spanWidth)
         {
             localCenter  = Vector3.zero;
             localTangent = Vector3.forward;
-            riverWidth   = 0f;
+            spanWidth    = 0f;
             if (Data.tileType == null || Data.tileType.propType != TilePropType.Water) return false;
 
             ComputeRiverEdgeIndices(Data.tileType, out int edgeAIdx, out int edgeBIdx);
@@ -268,7 +278,10 @@ namespace ElfVillage.Tiles
             localCenter  = QuadBezier(posA, ctrl, posB, 0.5f);
             localTangent = (QuadBezier(posA, ctrl, posB, 0.5f + dt)
                            - QuadBezier(posA, ctrl, posB, 0.5f - dt)).normalized;
-            riverWidth   = outerRadius * 0.5f;
+            // ★橋が渡らなければならないのは水面ではなく「岸の斜面の外側まで」。
+            //   水面の幅で計算すると、橋の端が斜面の途中で終わって宙に浮く
+            //   （岸をなだらかな斜面へ作り替えたときに実際に浮いた）。
+            spanWidth = RiverChannelLayout.BankOuterRadius(outerRadius) * 2f;
             return true;
         }
 
@@ -310,11 +323,13 @@ namespace ElfVillage.Tiles
 
         /// <summary>
         /// 川を避けるために陸地装飾を中心線からどれだけ離すか。
-        /// 流路の半幅（0.50）＋木の板がはみ出さないための余白。
+        /// 岸の斜面の外端（outerRadius=2.0で0.76）＋木の板がはみ出さないための余白0.15。
+        /// ★水面ではなく斜面の外端が基準。斜面の上に立てると、
+        ///   プロップは陸地の高さに置かれるので浮いて見えるため。
         /// ★値は LandDecorationLayout へ引数として渡す。あちら側へ埋め込まないこと
         ///   （木と花で適切な余白が違うため）。
         /// </summary>
-        internal const float LandDecorationClearance = 0.80f;
+        internal const float LandDecorationClearance = 0.91f;
 
         /// <summary>
         /// TileType.landDecoration の見た目を生成する。
@@ -798,81 +813,53 @@ namespace ElfVillage.Tiles
                 outerRadius, tileHeight);
         }
 
-        // SpawnWater の川岸ライン部分だけを静的に生成（パーティクルは含まない）
+        /// <summary>
+        /// 配置ゴースト用に、川がどこを通るかだけを示す平らな帯を置く（パーティクルは含まない）。
+        ///
+        /// ★実配置の溝メッシュはここでは作らない。ゴーストはホバーのたびに生成破棄されるので、
+        ///   2000頂点のメッシュを毎回組むと引っかかる。
+        /// ★以前はここで細長いCubeの岸ラインを左右に出していた。岸が地形の斜面になったので、
+        ///   代わりに水面の幅そのものを塗って「ここに川が来る」と伝える。
+        /// </summary>
         private static void CreateWaterFlowPreview(Transform parent, Vector3 edgeA, Vector3 edgeB,
                                                     float outerRadius, float tileHeight)
         {
-            float bankOffset = outerRadius * 0.25f;
-            // ★川岸は「溝の縁＝陸地の高さ」に置く。水面（溝底）とは別のルール。
-            //   実配置(CreateWaterFlow)と同じ式にすること。
-            //   ここが `tileHeight + 0.01` のままだと、ゴーストの岸だけ0.15浮く。
-            float y          = HexMeshBuilder.TopY(tileHeight) + PropLiftY;
+            // ★帯は「陸地の高さ」に置く。水面（溝底）とは別のルール。
+            //   ここが `tileHeight + 0.01` のままだと、ゴーストの帯だけ0.15浮く。
+            float y     = HexMeshBuilder.TopY(tileHeight) + PropLiftY;
+            float width = RiverChannelLayout.ChannelHalfWidth(outerRadius) * 2f;
 
             bool    isStraight = ((edgeA + edgeB) * 0.5f).sqrMagnitude < 0.01f;
             Vector3 ctrl       = isStraight ? (edgeA + edgeB) * 0.5f : Vector3.zero;
 
-            const int N = 8;
+            // 実配置の水面と同じ色みにしておく（置いた瞬間に色が変わらないように）
+            var waterColor = new Color(0.30f, 0.42f, 0.62f);
+
+            // 中心線を8分割し、各区間を1枚の板で覆う。
+            // 端の区間は辺から少しはみ出させて、隣のタイルとの継ぎ目に隙間を残さない
+            const int   N         = 8;
+            const float overshoot = 0.02f;
+
             var pts = new Vector3[N + 1];
             for (int i = 0; i <= N; i++)
                 pts[i] = QuadBezier(edgeA, ctrl, edgeB, (float)i / N);
 
-            var inwardA  = -edgeA.normalized;
-            var outwardB =  edgeB.normalized;
-            var perpA    = new Vector3(-inwardA.z,  0f, inwardA.x);
-            var perpB    = new Vector3(-outwardB.z, 0f, outwardB.x);
-            var bankColor = new Color(0.25f, 0.50f, 0.20f);
-            const float overshoot = 0.02f;
-
-            // edgeA 側の端セグメント
-            float lenA = (pts[1] - edgeA).magnitude + 0.01f;
-            var   rotA = Quaternion.LookRotation(new Vector3(inwardA.x, 0f, inwardA.z), Vector3.up);
-            for (int side = -1; side <= 1; side += 2)
+            for (int i = 0; i < N; i++)
             {
-                var b = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                b.transform.SetParent(parent);
-                b.transform.localPosition = new Vector3(
-                    edgeA.x + perpA.x * bankOffset * side + inwardA.x * (lenA - overshoot) * 0.5f, y,
-                    edgeA.z + perpA.z * bankOffset * side + inwardA.z * (lenA - overshoot) * 0.5f);
-                b.transform.localRotation = rotA;
-                b.transform.localScale    = new Vector3(0.04f, 0.03f, lenA + overshoot);
-                SetPropMaterial(b, bankColor);
-            }
+                var seg = pts[i + 1] - pts[i];
+                var len = seg.magnitude;
+                if (len < 0.0001f) continue;
 
-            // 中間セグメント
-            for (int i = 1; i <= N - 2; i++)
-            {
-                var seg  = pts[i + 1] - pts[i];
+                var dir  = seg / len;
                 var mid  = (pts[i] + pts[i + 1]) * 0.5f;
-                var len  = seg.magnitude + 0.01f;
-                var d    = seg / len;
-                var perp = new Vector3(-d.z, 0f, d.x);
-                var rot  = Quaternion.LookRotation(new Vector3(d.x, 0f, d.z), Vector3.up);
-                for (int side = -1; side <= 1; side += 2)
-                {
-                    var b = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                    b.transform.SetParent(parent);
-                    b.transform.localPosition = new Vector3(
-                        mid.x + perp.x * bankOffset * side, y,
-                        mid.z + perp.z * bankOffset * side);
-                    b.transform.localRotation = rot;
-                    b.transform.localScale    = new Vector3(0.04f, 0.03f, len);
-                    SetPropMaterial(b, bankColor);
-                }
-            }
+                float extend = (i == 0 || i == N - 1) ? overshoot : 0f;
 
-            // edgeB 側の端セグメント
-            float lenB = (edgeB - pts[N - 1]).magnitude + 0.01f;
-            var   rotB = Quaternion.LookRotation(new Vector3(outwardB.x, 0f, outwardB.z), Vector3.up);
-            for (int side = -1; side <= 1; side += 2)
-            {
-                var b = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                b.transform.SetParent(parent);
-                b.transform.localPosition = new Vector3(
-                    edgeB.x + perpB.x * bankOffset * side - outwardB.x * (lenB - overshoot) * 0.5f, y,
-                    edgeB.z + perpB.z * bankOffset * side - outwardB.z * (lenB - overshoot) * 0.5f);
-                b.transform.localRotation = rotB;
-                b.transform.localScale    = new Vector3(0.04f, 0.03f, lenB + overshoot);
-                SetPropMaterial(b, bankColor);
+                var board = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                board.transform.SetParent(parent);
+                board.transform.localPosition = new Vector3(mid.x, y, mid.z);
+                board.transform.localRotation = Quaternion.LookRotation(new Vector3(dir.x, 0f, dir.z), Vector3.up);
+                board.transform.localScale    = new Vector3(width, 0.02f, len + extend);
+                SetPropMaterial(board, waterColor);
             }
         }
 
@@ -1479,57 +1466,10 @@ namespace ElfVillage.Tiles
             // 隣接タイルとの継ぎ目の隙間をなくすため、端のキューブを境界から少しはみ出させる
             const float overshoot = 0.02f;
 
-            // ── 端（edgeA側）: 辺上から overshoot だけ外へはみ出して配置 ──────
-            float lenA = (pts[1] - edgeA).magnitude + 0.01f;
-            var   rotA = Quaternion.LookRotation(new Vector3(inwardA.x, 0f, inwardA.z), Vector3.up);
-            for (int side = -1; side <= 1; side += 2)
-            {
-                var bank = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                bank.transform.SetParent(parent);
-                bank.transform.localPosition = new Vector3(
-                    edgeA.x + perpA.x * bankOffset * side + inwardA.x * (lenA - overshoot) * 0.5f, y,
-                    edgeA.z + perpA.z * bankOffset * side + inwardA.z * (lenA - overshoot) * 0.5f);
-                bank.transform.localRotation = rotA;
-                bank.transform.localScale    = new Vector3(0.04f, 0.03f, lenA + overshoot);
-                SetPropMaterial(bank, new Color(0.25f, 0.50f, 0.20f));
-            }
-
-            // ── 中間: ベジェ曲線に追従する通常セグメント ──────────────────
-            for (int i = 1; i <= N - 2; i++)
-            {
-                var seg  = pts[i + 1] - pts[i];
-                var mid  = (pts[i] + pts[i + 1]) * 0.5f;
-                var len  = seg.magnitude + 0.01f;
-                var dir  = seg / len;
-                var perp = new Vector3(-dir.z, 0f, dir.x);
-                var rot  = Quaternion.LookRotation(new Vector3(dir.x, 0f, dir.z), Vector3.up);
-                for (int side = -1; side <= 1; side += 2)
-                {
-                    var bank = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                    bank.transform.SetParent(parent);
-                    bank.transform.localPosition = new Vector3(
-                        mid.x + perp.x * bankOffset * side, y,
-                        mid.z + perp.z * bankOffset * side);
-                    bank.transform.localRotation = rot;
-                    bank.transform.localScale    = new Vector3(0.04f, 0.03f, len);
-                    SetPropMaterial(bank, new Color(0.25f, 0.50f, 0.20f));
-                }
-            }
-
-            // ── 端（edgeB側）: 辺上から overshoot だけ外へはみ出して配置 ──────
-            float lenB = (edgeB - pts[N - 1]).magnitude + 0.01f;
-            var   rotB = Quaternion.LookRotation(new Vector3(outwardB.x, 0f, outwardB.z), Vector3.up);
-            for (int side = -1; side <= 1; side += 2)
-            {
-                var bank = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                bank.transform.SetParent(parent);
-                bank.transform.localPosition = new Vector3(
-                    edgeB.x + perpB.x * bankOffset * side - outwardB.x * (lenB - overshoot) * 0.5f, y,
-                    edgeB.z + perpB.z * bankOffset * side - outwardB.z * (lenB - overshoot) * 0.5f);
-                bank.transform.localRotation = rotB;
-                bank.transform.localScale    = new Vector3(0.04f, 0.03f, lenB + overshoot);
-                SetPropMaterial(bank, new Color(0.25f, 0.50f, 0.20f));
-            }
+            // ★川岸は地形そのもの（RiverChannelMeshBuilder の岸サブメッシュ）で表す。
+            //   以前はここで細長いCubeを左右に並べていたが、どれだけ細くしても柵に見え、
+            //   草地から水へ繋がらなかった。
+            //   ここで早期returnしないこと。この下の水流パーティクルまで止まってしまう。
 
             // ── パーティクル: 曲線を4分割してそれぞれにエミッターを配置 ────
             // 各エミッターが担当区間に沿って粒子を流し、合わせると自然な流れに見える

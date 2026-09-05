@@ -20,10 +20,13 @@ namespace ElfVillage.Tiles
 {
     public static class RiverChannelLayout
     {
-        /// <summary>outerRadius比。流路の半幅（＝川岸ラインが置かれる位置）。</summary>
+        /// <summary>outerRadius比。平らな水面の半幅（＝岸の斜面が始まる位置）。</summary>
         // 外部へはChannelHalfWidth()経由でのみ公開する。比率そのものを配ると、
         // 呼び出し側が独自にouterRadiusを掛け直すことになり、式が分かれるため。
-        private const float HalfWidthRatio = 0.25f;
+        private const float HalfWidthRatio = 0.21f;
+
+        /// <summary>outerRadius比。岸の斜面の外端（＝ここから外は平らな草地）。</summary>
+        private const float BankOuterRatio = 0.38f;
 
         /// <summary>中心線を折れ線で近似するときの分割数。</summary>
         private const int CurveSamples = 24;
@@ -32,10 +35,23 @@ namespace ElfVillage.Tiles
         private static readonly float[] s_DirToWorldAngle = { 30f, 330f, 270f, 210f, 150f, 90f };
 
         /// <summary>
-        /// 流路の半幅。溝メッシュの壁の位置であり、川岸ラインの位置でもある。
-        /// 木や花を避けさせる距離は、これに各プロップの余白を足して決める。
+        /// 平らな水面の半幅。水の色と岸の色の境目であり、岸の斜面が始まる位置でもある。
         /// </summary>
         public static float ChannelHalfWidth(float outerRadius) => outerRadius * HalfWidthRatio;
+
+        /// <summary>
+        /// 岸の斜面の外端。ここから外は平らな草地。
+        ///
+        /// ★断面は「中心線までの距離」だけの関数で、形状（直線・曲がり・緩カーブ）で分けない。
+        ///   流路はどの形状でも辺に対して垂直に出入りするので、
+        ///   タイルが辺を共有したとき両側が同じ距離を測る。
+        ///   だから高さも色も継ぎ目で自動的に一致する。形状ごとに値を変えると、
+        ///   直線と曲がりを繋いだ瞬間にそこだけ段差が出る。
+        ///
+        /// ★木や花を避けさせる距離は、この値に各プロップの余白を足して決める
+        ///   （斜面の上に立つと浮いて見えるため、水面ではなく斜面の外端が基準）。
+        /// </summary>
+        public static float BankOuterRadius(float outerRadius) => outerRadius * BankOuterRatio;
 
         /// <summary>2次ベジェ。流路の中心線はこの曲線ひとつで表される。</summary>
         public static Vector3 QuadBezier(Vector3 p0, Vector3 p1, Vector3 p2, float t)
