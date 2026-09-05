@@ -137,6 +137,81 @@ namespace ElfVillage.Tests
             ctrl = isStraight ? (a + b) * 0.5f : Vector3.zero;
         }
 
+        // ══ 形状（辺の開き）と橋 ═══════════════════════════════════════
+
+        [Test]
+        public void ChannelOpening_TellsTheThreeShapesApart()
+        {
+            // 実アセットの辺の組み合わせ。回転しても開きは変わらない
+            Assert.AreEqual(3, RiverChannelLayout.ChannelOpening(0, 3), "直線");
+            Assert.AreEqual(2, RiverChannelLayout.ChannelOpening(0, 4), "緩カーブ");
+            Assert.AreEqual(1, RiverChannelLayout.ChannelOpening(0, 5), "曲がり");
+        }
+
+        [Test]
+        public void ChannelOpening_IsTheSameWhicheverEdgeComesFirst()
+        {
+            // 辺の並び順（どちらを始点に選んだか）で形状が変わってはいけない
+            for (int a = 0; a < 6; a++)
+            {
+                for (int b = 0; b < 6; b++)
+                {
+                    Assert.AreEqual(RiverChannelLayout.ChannelOpening(a, b),
+                                    RiverChannelLayout.ChannelOpening(b, a),
+                                    $"辺{a}-{b} と 辺{b}-{a} で開きが違う");
+                }
+            }
+        }
+
+        [Test]
+        public void ChannelOpening_IsUnchangedByRotation()
+        {
+            // タイルを回しても同じ形状として扱えること
+            for (int rotation = 0; rotation < 6; rotation++)
+            {
+                Assert.AreEqual(3, RiverChannelLayout.ChannelOpening((0 + rotation) % 6, (3 + rotation) % 6));
+                Assert.AreEqual(2, RiverChannelLayout.ChannelOpening((0 + rotation) % 6, (4 + rotation) % 6));
+                Assert.AreEqual(1, RiverChannelLayout.ChannelOpening((0 + rotation) % 6, (5 + rotation) % 6));
+            }
+        }
+
+        [Test]
+        public void CanHostBridge_AcceptsStraightAndWideBend_ButNotTheSharpBend()
+        {
+            // ★曲がりは流路が急に折れていて、流れに垂直な1本の橋では両岸へ渡せない。
+            var straight = MakeType(TilePropType.Water, EdgeType.River, EdgeType.Field, EdgeType.Field,
+                                                         EdgeType.River, EdgeType.Field, EdgeType.Field);
+            var wide     = MakeType(TilePropType.Water, EdgeType.River, EdgeType.Field, EdgeType.Field,
+                                                         EdgeType.Field, EdgeType.River, EdgeType.Field);
+            var bend     = MakeType(TilePropType.Water, EdgeType.River, EdgeType.Field, EdgeType.Field,
+                                                         EdgeType.Field, EdgeType.Field, EdgeType.River);
+            try
+            {
+                Assert.IsTrue (RiverChannelLayout.CanHostBridge(straight, 0, 0, 0), "直線に架からない");
+                Assert.IsTrue (RiverChannelLayout.CanHostBridge(wide,     0, 0, 0), "緩カーブに架からない");
+                Assert.IsFalse(RiverChannelLayout.CanHostBridge(bend,     0, 0, 0), "曲がりに架かってしまう");
+            }
+            finally
+            {
+                Object.DestroyImmediate(straight);
+                Object.DestroyImmediate(wide);
+                Object.DestroyImmediate(bend);
+            }
+        }
+
+        [Test]
+        public void CanHostBridge_RejectsNonRiverTiles()
+        {
+            var forest = MakeType(TilePropType.Tree, EdgeType.Forest, EdgeType.Forest, EdgeType.Forest,
+                                                     EdgeType.Forest, EdgeType.Forest, EdgeType.Forest);
+            try
+            {
+                Assert.IsFalse(RiverChannelLayout.CanHostBridge(forest, 0, 0, 0));
+                Assert.IsFalse(RiverChannelLayout.CanHostBridge(null,   0, 0, 0));
+            }
+            finally { Object.DestroyImmediate(forest); }
+        }
+
         // ══ 中心線までの距離 ═════════════════════════════════════════════
 
         [Test]

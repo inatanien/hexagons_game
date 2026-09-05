@@ -146,6 +146,30 @@ namespace ElfVillage.Tiles
             return true;
         }
 
+        /// <summary>
+        /// 流路が通る2辺の「開き」。1=曲がり（隣り合う辺）、2=緩カーブ、3=直線（対辺）。
+        /// ★タイルを回しても変わらない量なので、向きを気にせず形状を判別できる。
+        /// </summary>
+        public static int ChannelOpening(int edgeA, int edgeB)
+        {
+            int d = (((edgeB - edgeA) % 6) + 6) % 6;
+            return Mathf.Min(d, 6 - d);
+        }
+
+        /// <summary>
+        /// このタイルに橋を架けられるか。
+        ///
+        /// ★曲がり（開き1）には架けない。流路が急に折れているので、
+        ///   流れに垂直な1本の橋では両岸へ素直に渡せず、橋が川に沿って寝てしまう。
+        ///   架けられるのは直線と緩カーブだけ。
+        /// </summary>
+        public static bool CanHostBridge(TileType type, int coordQ, int coordR, int coordS)
+        {
+            if (type == null || type.propType != TilePropType.Water) return false;
+            if (!TryGetChannelEdgeIndices(type, coordQ, coordR, coordS, out int a, out int b)) return false;
+            return ChannelOpening(a, b) >= 2;
+        }
+
         /// <summary>流路が通る2辺のインデックスを求める（TryGetChannelの辺選択部分）。</summary>
         public static bool TryGetChannelEdgeIndices(TileType type, int coordQ, int coordR, int coordS,
                                                      out int edgeA, out int edgeB)

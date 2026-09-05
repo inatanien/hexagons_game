@@ -276,11 +276,13 @@ namespace ElfVillage.Tests
         public IEnumerator ScenicRivers_CountTowardTheRiverCluster()
         {
             // 7. 魚の発生条件（既定 8枚）が、景観川を混ぜても成立すること。
+            // ★一直線に並べるので直線だけを使う。曲がり・緩カーブは向かい合う辺がRiverにならず、
+            //   水路が繋がらないので1本の川として数えられない（StraightRiverLine のコメント参照）。
             var names = new[] {
                 "TileType_River_Straight",        "TileType_RiverForest_Straight",
                 "TileType_RiverFlower_Straight",  "TileType_River_Straight",
-                "TileType_RiverForest_Bend",      "TileType_RiverFlower_Bend",
-                "TileType_River_Wide_Bend",       "TileType_RiverForest_WideBend" };
+                "TileType_RiverForest_Straight",  "TileType_RiverFlower_Straight",
+                "TileType_River_Straight",        "TileType_RiverForest_Straight" };
 
             var map = BuildRiverLine(names);
             var mgr = BuildGridManager(map);
@@ -304,6 +306,43 @@ namespace ElfVillage.Tests
 
                 Assert.IsNotNull(received, "8枚繋がっているのに RiverClusterEvent が発行されない");
                 Assert.AreEqual(8, received.Tiles.Count, "クラスター枚数が想定と違う（景観川が数えられていない）");
+            }
+            finally { EventBus.Unsubscribe(handler); }
+        }
+
+        [UnityTest]
+        public IEnumerator RiverCluster_DoesNotCountRiversThatAreOnlyAdjacent()
+        {
+            // ★クエスト「川を3枚つなげよう」と魚の閾値が見ているクラスターも、
+            //   隣にあるだけの川を数えない。
+            //   3枚目に曲がりを回転させずに挟むと、その dir3 は Field なので
+            //   2枚目との水路は繋がらない。手前2枚だけのクラスターになる。
+            var names = new[] {
+                "TileType_River_Straight", "TileType_River_Straight", "TileType_River_Bend",
+                "TileType_River_Straight", "TileType_River_Straight" };
+
+            var map = BuildRiverLine(names);
+            var mgr = BuildGridManager(map);
+
+            _hostGo = new GameObject("RiverGrowthEvaluator");
+            var eval = _hostGo.AddComponent<RiverGrowthEvaluator>();
+            SetPrivate(eval, "_gridManager", mgr);
+            SetPrivate(eval, "_threshold", 8);
+            _hostGo.SetActive(true);
+            yield return null;
+
+            TerrainGrowthEvent<RiverGrowthMetrics> received = null;
+            System.Action<TerrainGrowthEvent<RiverGrowthMetrics>> handler = e => received = e;
+            EventBus.Subscribe(handler);
+            try
+            {
+                var start = new HexCoord(0, 0);
+                EventBus.Publish(new TilePlacedEvent(map[start], map[start].Data.tileType, start));
+                yield return null;
+
+                Assert.IsNotNull(received, "進捗イベントは閾値と無関係に毎回出るはず");
+                Assert.AreEqual(2, received.Metrics.LargestClusterSize,
+                    "水路が途切れているのに1本の川として数えている");
             }
             finally { EventBus.Unsubscribe(handler); }
         }
@@ -346,22 +385,30 @@ namespace ElfVillage.Tests
 
         // ══ 8. 橋 ═══════════════════════════════════════════════════════
 
-        [UnityTest]
-        public IEnumerator ScenicRivers_TriggerTheBridgeEvaluator()
+        // ★一直線に並べるので、どのタイルも dir0 と dir3 の両方が River でなければ繋がらない。
+        //   その条件を満たすのは直線だけ（曲がり・緩カーブは辺の組み合わせが違う）。
+        //   曲がりを混ぜたい場合は、向かい合う辺が River になるよう回転を組む必要がある。
+        private static readonly string[] StraightRiverLine = {
+            "TileType_RiverForest_Straight", "TileType_RiverFlower_Straight", "TileType_River_Straight",
+            "TileType_RiverForest_Straight", "TileType_RiverFlower_Straight" };
+
+        private RiverBridgeEvaluator BuildBridgeEvaluator(Dictionary<HexCoord, HexTile> map)
         {
-            // 景観川だけを5枚並べても橋の節目に到達すること。
-            var names = new[] {
-                "TileType_RiverForest_Straight", "TileType_RiverFlower_Straight", "TileType_RiverForest_Bend",
-                "TileType_RiverFlower_Bend",     "TileType_RiverForest_WideBend" };
-
-            var map = BuildRiverLine(names);
             var mgr = BuildGridManager(map);
-
             _hostGo = new GameObject("RiverBridgeEvaluator");
             var eval = _hostGo.AddComponent<RiverBridgeEvaluator>();
             SetPrivate(eval, "_gridManager", mgr);
             SetPrivate(eval, "_interval", 5);
             _hostGo.SetActive(true);
+            return eval;
+        }
+
+        [UnityTest]
+        public IEnumerator ScenicRivers_TriggerTheBridgeEvaluator()
+        {
+            // 景観川だけを5枚並べても橋の節目に到達すること。
+            var map = BuildRiverLine(StraightRiverLine);
+            BuildBridgeEvaluator(map);
             yield return null;
 
             RiverBridgeEvent received = null;
@@ -375,6 +422,94 @@ namespace ElfVillage.Tests
 
                 Assert.IsNotNull(received, "景観川5枚で RiverBridgeEvent が発行されない");
                 Assert.AreEqual(5, received.ClusterSize, "クラスター枚数が想定と違う");
+            }
+            finally { EventBus.Unsubscribe(handler); }
+        }
+
+        [UnityTest]
+        public IEnumerator Bridge_IsNotBuiltOnASharpBend()
+        {
+            // ★節目に到達した1枚が曲がりでも、橋そのものは失わない。
+            //   同じ川の中の直線へ架け替える。
+            //   ここで発行を見送ると、橋を待っているクエストがそのぶん足踏みする。
+            var names = new[] {
+                "TileType_River_Bend",      "TileType_River_Straight", "TileType_River_Straight",
+                "TileType_River_Straight",  "TileType_River_Straight" };
+
+            var map = BuildRiverLine(names);
+            BuildBridgeEvaluator(map);
+            yield return null;
+
+            RiverBridgeEvent received = null;
+            System.Action<RiverBridgeEvent> handler = e => received = e;
+            EventBus.Subscribe(handler);
+            try
+            {
+                var start = new HexCoord(0, 0);
+                EventBus.Publish(new TilePlacedEvent(map[start], map[start].Data.tileType, start));
+                yield return null;
+
+                Assert.IsNotNull(received, "曲れが節目でも橋は架かるはず");
+                Assert.AreNotSame(map[start], received.BridgeTile, "曲がりのタイルへ橋が架かっている");
+
+                var picked = received.BridgeTile.Data;
+                Assert.IsTrue(RiverChannelLayout.CanHostBridge(picked.tileType, picked.coord.q, picked.coord.r, picked.coord.s),
+                    "橋を架けられない形状のタイルが選ばれている");
+                Assert.AreEqual(new HexCoord(0, 0).Neighbor(0), picked.coord,
+                    "置いたタイルにいちばん近い直線が選ばれていない");
+            }
+            finally { EventBus.Unsubscribe(handler); }
+        }
+
+        [UnityTest]
+        public IEnumerator Bridge_IsNotBuiltTwiceOnTheSameTile()
+        {
+            var map = BuildRiverLine(StraightRiverLine);
+            BuildBridgeEvaluator(map);
+            yield return null;
+
+            var received = new List<RiverBridgeEvent>();
+            System.Action<RiverBridgeEvent> handler = e => received.Add(e);
+            EventBus.Subscribe(handler);
+            try
+            {
+                var start = new HexCoord(0, 0);
+                EventBus.Publish(new TilePlacedEvent(map[start], map[start].Data.tileType, start));
+                yield return null;
+                EventBus.Publish(new TilePlacedEvent(map[start], map[start].Data.tileType, start));
+                yield return null;
+
+                Assert.AreEqual(2, received.Count, "2回とも節目に到達しているはず");
+                Assert.AreNotSame(received[0].BridgeTile, received[1].BridgeTile,
+                    "同じタイルへ2本目の橋が架かっている");
+            }
+            finally { EventBus.Unsubscribe(handler); }
+        }
+
+        [UnityTest]
+        public IEnumerator Bridge_DoesNotCountRiversThatAreOnlyAdjacent()
+        {
+            // ★隣にあるだけの川は数えない。
+            //   3枚目に曲がりを回転させずに挟むと、その dir3 は Field なので
+            //   2枚目との水路は繋がらない。手前2枚だけのクラスターになり、節目に届かない。
+            var names = new[] {
+                "TileType_River_Straight", "TileType_River_Straight", "TileType_River_Bend",
+                "TileType_River_Straight", "TileType_River_Straight" };
+
+            var map = BuildRiverLine(names);
+            BuildBridgeEvaluator(map);
+            yield return null;
+
+            RiverBridgeEvent received = null;
+            System.Action<RiverBridgeEvent> handler = e => received = e;
+            EventBus.Subscribe(handler);
+            try
+            {
+                var start = new HexCoord(0, 0);
+                EventBus.Publish(new TilePlacedEvent(map[start], map[start].Data.tileType, start));
+                yield return null;
+
+                Assert.IsNull(received, "水路が途切れているのに1本の川として数えている");
             }
             finally { EventBus.Unsubscribe(handler); }
         }

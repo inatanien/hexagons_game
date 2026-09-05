@@ -9,6 +9,13 @@
 //         魚が3枚で湧いてしまう（逆に魚に合わせると3枚のクエストが作れない）。
 //         森は ForestGrowthEvaluator が同じ形で閾値なしの成長イベントを出しており、それと対称。
 //
+//       ★「隣にある」ではなく「川として繋がっている」を数える。
+//         川タイル同士が隣り合っていても、互いにField辺を向け合っていれば水は繋がらない。
+//         見た目が繋がっていない川をまとめて数えると、
+//         離れた水たまりが集まっただけでクエストが進み、魚も湧いてしまう。
+//         判定は EdgeMatcher.AreConnectedAs へ委譲する
+//         （溝を開くかどうかを決めているのと同じ関数。RiverBridgeEvaluator とも同じ）。
+//
 //       ★川かどうかは TileType.HasCategory(River) で判定する。
 //         以前はSceneのTileType[]へ登録されたアセット参照の一致で判定しており、
 //         川タイルを増やすたびに登録漏れで魚が出なくなる作りだった
@@ -85,6 +92,10 @@ namespace ElfVillage.Tiles
 
                 for (int dir = 0; dir < 6; dir++)
                 {
+                    // 隣にあるだけでは辿らない。水路が実際に繋がっている辺だけを渡る
+                    if (!_gridManager.TryGetTile(coord.Neighbor(dir), out var neighbor)) continue;
+                    if (!EdgeMatcher.AreConnectedAs(tile, neighbor, dir, TileCategory.River)) continue;
+
                     var next = coord.Neighbor(dir);
                     if (visited.Add(next))
                         queue.Enqueue(next);

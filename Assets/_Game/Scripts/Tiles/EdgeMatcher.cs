@@ -173,6 +173,27 @@ namespace ElfVillage.Tiles
             => TryGetConnectedCategory(source, sourceDirection, sourceRotation: 0, neighbor, neighborRotation: 0, out category);
 
         /// <summary>
+        /// dir方向で隣り合う2枚が、指定カテゴリとして実際に繋がっているか。
+        ///
+        /// ★「隣にある」ではなく「辺が突き合っている」を見る。
+        ///   川タイル同士が隣り合っていても、互いにField辺を向け合っていれば水は繋がらない。
+        ///   クラスターを辿る側がこの関数を通ることで、
+        ///   「繋がって見えるか」と「1つのまとまりとして数えるか」がずれない。
+        ///
+        /// ★互いの回転を渡すこと。渡さないと回したタイルで別の辺を突き合わせてしまう。
+        /// </summary>
+        public static bool AreConnectedAs(HexTile from, HexTile neighbor, int direction, TileCategory category)
+        {
+            if (from == null || neighbor == null) return false;
+            if (!neighbor.IsPlaced) return false;
+
+            return TryGetConnectedCategory(
+                       from.Data.tileType,     direction, from.Data.rotation,
+                       neighbor.Data.tileType, neighbor.Data.rotation, out TileCategory connected)
+                   && connected == category;
+        }
+
+        /// <summary>
         /// TryGetConnectedCategoryの回転対応版。両タイルの実際の配置回転を渡すことで、
         /// 回転済みタイル同士でも正しい辺を突き合わせて判定する。
         /// </summary>
